@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS oum_profiles
+(
+    uuid
+    TEXT
+    NOT
+    NULL,
+    name
+    TEXT
+    NOT
+    NULL,
+    created_at
+    INTEGER
+    NOT
+    NULL,
+    last_used
+    INTEGER
+    NOT
+    NULL,
+    state_json
+    TEXT
+    NOT
+    NULL,
+    balance
+    REAL
+    NOT
+    NULL
+    DEFAULT
+    0,
+    primary_group
+    TEXT,
+    groups_json
+    TEXT,
+    PRIMARY
+    KEY
+(
+    uuid,
+    name
+)
+    );
+
+CREATE INDEX IF NOT EXISTS idx_oum_profiles_uuid ON oum_profiles (uuid);
