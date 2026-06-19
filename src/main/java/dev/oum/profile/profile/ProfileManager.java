@@ -442,9 +442,18 @@ public final class ProfileManager {
             targetData.setLastUsed(System.currentTimeMillis());
 
             double currentBalance = EconomyBridge.balance(player);
-            if (currentBalance > 0) EconomyBridge.withdraw(player, currentBalance);
-            if (targetData.balance() > 0) EconomyBridge.deposit(player, targetData.balance());
-            OumLib.logDebug("Swapped balance for player " + player.getName() + " (withdrew=" + currentBalance + ", deposited=" + targetData.balance() + ")");
+            double targetBalance = targetData.balance();
+            double difference = targetBalance - currentBalance;
+
+            if (difference > 0) {
+                EconomyBridge.deposit(player, difference);
+                OumLib.logDebug("Swapped balance for player " + player.getName() + " (deposited difference=" + difference + ")");
+            } else if (difference < 0) {
+                EconomyBridge.withdraw(player, -difference);
+                OumLib.logDebug("Swapped balance for player " + player.getName() + " (withdrew difference=" + (-difference) + ")");
+            } else {
+                OumLib.logDebug("Swapped balance for player " + player.getName() + " (no change, balance=" + targetBalance + ")");
+            }
 
             if (PermissionBridge.isAvailable() && targetData.groupsJson() != null) {
                 List<String> groups = GSON.fromJson(targetData.groupsJson(), STRING_LIST);
