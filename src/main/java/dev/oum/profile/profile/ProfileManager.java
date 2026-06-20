@@ -12,6 +12,7 @@ import dev.oum.oumlib.scheduler.Scheduler;
 import dev.oum.oumlib.scheduler.TaskHandle;
 import dev.oum.oumlib.text.Text;
 import dev.oum.oumlib.util.Cooldown;
+import dev.oum.profile.ProfilePlaceholders;
 import dev.oum.profile.api.event.*;
 import dev.oum.profile.command.Permissions;
 import dev.oum.profile.config.ProfileConfig;
@@ -25,10 +26,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.Type;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ProfileManager {
@@ -43,6 +41,7 @@ public final class ProfileManager {
     private final Map<UUID, String> active = new ConcurrentHashMap<>();
     private final Map<UUID, TaskHandle> warmups = new ConcurrentHashMap<>();
     private final Set<UUID> mutedAlerts = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Long> sessionStarts = new ConcurrentHashMap<>();
     private Cooldown combatCooldown;
     private Cooldown switchCooldown;
 
@@ -84,6 +83,12 @@ public final class ProfileManager {
         return configManager;
     }
 
+    public long getElapsedSessionSeconds(@NonNull UUID uuid) {
+        Long start = sessionStarts.get(uuid);
+        if (start == null) return 0;
+        return (System.currentTimeMillis() - start) / 1000;
+    }
+
     public @NonNull Cooldown combatCooldown() {
         return combatCooldown;
     }
@@ -119,7 +124,34 @@ public final class ProfileManager {
             OumLib.logDebug("Loaded " + map.size() + " profiles for " + player.getName() + ". Active profile: " + activeName);
             ProfileData toApply = map.get(activeName);
             player.closeInventory();
-            toApply.state().apply(player, configManager.get().switching().saveLocation());
+            toApply.state().apply(player, configManager.get().switching().saveLocation(), configManager.get());
+            applyEconomies(player, toApply);
+            sessionStarts.put(uuid, System.currentTimeMillis());
+
+            // register dynamic placeholders for loaded profiles
+            for (ProfileData data : map.values()) {
+                PlayerState state = data.state();
+                if (state.mcmmo() != null) {
+                    for (String skill : state.mcmmo().keySet()) {
+                        ProfilePlaceholders.registerSkillPlaceholder("mcmmo", skill, this);
+                    }
+                }
+                if (state.auraskills() != null) {
+                    for (String skill : state.auraskills().keySet()) {
+                        ProfilePlaceholders.registerSkillPlaceholder("auraskills", skill, this);
+                    }
+                }
+                if (state.jobs() != null) {
+                    for (String job : state.jobs().keySet()) {
+                        ProfilePlaceholders.registerJobPlaceholder(job, this);
+                    }
+                }
+                if (state.currencies() != null) {
+                    for (String currency : state.currencies().keySet()) {
+                        ProfilePlaceholders.registerCurrencyPlaceholder(currency, this);
+                    }
+                }
+            }
 
             Bukkit.getPluginManager().callEvent(new ProfileLoadEvent(player, activeName));
         }));
@@ -144,6 +176,7 @@ public final class ProfileManager {
         cache.remove(uuid);
         active.remove(uuid);
         mutedAlerts.remove(uuid);
+        sessionStarts.remove(uuid);
     }
 
     public void shutdown() {
@@ -171,10 +204,22 @@ public final class ProfileManager {
         cache.clear();
         active.clear();
         mutedAlerts.clear();
+        sessionStarts.clear();
     }
 
     private void captureLiveState(@NonNull Player player, @NonNull ProfileData data, boolean saveLocation) {
-        data.setState(PlayerState.capture(player, saveLocation));
+        UUID uuid = player.getUniqueId();
+        long elapsed = 0;
+        Long start = sessionStarts.get(uuid);
+        if (start != null) {
+            elapsed = (System.currentTimeMillis() - start) / 1000;
+        }
+        long prevPlaytime = data.state().playtimeSeconds() != null
+                ? data.state().playtimeSeconds() : 0L;
+        long totalPlaytime = prevPlaytime + elapsed;
+        sessionStarts.put(uuid, System.currentTimeMillis());
+
+        data.setState(PlayerState.capture(player, saveLocation, configManager.get(), totalPlaytime));
         data.setBalance(EconomyBridge.balance(player));
         data.setLastUsed(System.currentTimeMillis());
 
@@ -186,7 +231,7 @@ public final class ProfileManager {
                 data.setGroupsJson(GSON.toJson(groups));
             }
         }
-        OumLib.logDebug("Captured state for player " + player.getName() + " on profile " + data.name() + " (Balance: " + data.balance() + ", Group: " + data.primaryGroup() + ")");
+        OumLib.logDebug("Captured state for player " + player.getName() + " on profile " + data.name() + " (Balance: " + data.balance() + ", Group: " + data.primaryGroup() + ", Playtime: " + totalPlaytime + "s)");
     }
 
     public @NonNull Map<String, ProfileData> getProfiles(@NonNull UUID uuid) {
@@ -438,22 +483,10 @@ public final class ProfileManager {
             storage.save(uuid, current);
 
             OumLib.logDebug("Applying profile '" + target + "' data state to player " + player.getName());
-            targetData.state().apply(player, configManager.get().switching().saveLocation());
+            targetData.state().apply(player, configManager.get().switching().saveLocation(), configManager.get());
             targetData.setLastUsed(System.currentTimeMillis());
 
-            double currentBalance = EconomyBridge.balance(player);
-            double targetBalance = targetData.balance();
-            double difference = targetBalance - currentBalance;
-
-            if (difference > 0) {
-                EconomyBridge.deposit(player, difference);
-                OumLib.logDebug("Swapped balance for player " + player.getName() + " (deposited difference=" + difference + ")");
-            } else if (difference < 0) {
-                EconomyBridge.withdraw(player, -difference);
-                OumLib.logDebug("Swapped balance for player " + player.getName() + " (withdrew difference=" + (-difference) + ")");
-            } else {
-                OumLib.logDebug("Swapped balance for player " + player.getName() + " (no change, balance=" + targetBalance + ")");
-            }
+            applyEconomies(player, targetData);
 
             if (PermissionBridge.isAvailable() && targetData.groupsJson() != null) {
                 List<String> groups = GSON.fromJson(targetData.groupsJson(), STRING_LIST);
@@ -470,5 +503,44 @@ public final class ProfileManager {
             sendAlert(configManager.get().messages().adminAlertSwitch(), "player", player.getName(), "target", target);
             Bukkit.getPluginManager().callEvent(new ProfilePostSwitchEvent(player, currentName, target));
         });
+    }
+
+    private void applyEconomies(@NonNull Player player, @NonNull ProfileData targetData) {
+        ProfileConfig config = configManager.get();
+        if (config.economy() != null && config.economy().enabled()) {
+            Map<String, Double> savedCurrencies = targetData.state().currencies();
+            if (savedCurrencies == null) {
+                savedCurrencies = new HashMap<>();
+            }
+            for (String currency : config.economy().currencies()) {
+                try {
+                    double currentBal = EconomyBridge.balance(currency, player);
+                    double targetBal = savedCurrencies.getOrDefault(currency, 0.0);
+                    double diff = targetBal - currentBal;
+                    if (diff > 0) {
+                        EconomyBridge.deposit(currency, player, diff);
+                        OumLib.logDebug("Swapped " + currency + " balance for " + player.getName() + " (deposited diff=" + diff + ")");
+                    } else if (diff < 0) {
+                        EconomyBridge.withdraw(currency, player, -diff);
+                        OumLib.logDebug("Swapped " + currency + " balance for " + player.getName() + " (withdrew diff=" + (-diff) + ")");
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        } else {
+            try {
+                double currentBalance = EconomyBridge.balance(player);
+                double targetBalance = targetData.balance();
+                double difference = targetBalance - currentBalance;
+                if (difference > 0) {
+                    EconomyBridge.deposit(player, difference);
+                    OumLib.logDebug("Swapped balance for player " + player.getName() + " (deposited difference=" + difference + ")");
+                } else if (difference < 0) {
+                    EconomyBridge.withdraw(player, -difference);
+                    OumLib.logDebug("Swapped balance for player " + player.getName() + " (withdrew difference=" + (-difference) + ")");
+                }
+            } catch (Throwable ignored) {
+            }
+        }
     }
 }

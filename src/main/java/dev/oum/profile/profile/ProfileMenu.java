@@ -2,21 +2,31 @@ package dev.oum.profile.profile;
 
 import dev.oum.oumlib.inventory.ChestMenu;
 import dev.oum.oumlib.inventory.ClickAction;
+import dev.oum.oumlib.bridge.item.ItemBridge;
 import dev.oum.oumlib.inventory.ItemBuilder;
+import dev.oum.oumlib.bridge.economy.EconomyBridge;
+import dev.oum.oumlib.bridge.permission.PermissionBridge;
 import dev.oum.oumlib.inventory.Layout;
+import dev.oum.oumlib.scheduler.Scheduler;
+import dev.oum.oumlib.scheduler.TaskHandle;
 import dev.oum.oumlib.text.Text;
 import dev.oum.oumlib.text.TextInput;
+import dev.oum.oumlib.util.Format;
 import dev.oum.profile.command.Permissions;
 import dev.oum.profile.config.ProfileConfig;
+import dev.oum.profile.integration.IntegrationManager;
+import dev.oum.profile.integration.SkillData;
 import dev.oum.profile.model.ProfileData;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NonNull;
 
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -73,9 +83,9 @@ public final class ProfileMenu {
         }
 
         // Bind border characters dynamically
-        Material borderMat = Material.matchMaterial(cfg.borderMaterial());
-        if (borderMat == null) borderMat = Material.GRAY_STAINED_GLASS_PANE;
-        ItemStack borderItem = ItemBuilder.of(borderMat).name(cfg.borderName()).build();
+        ItemStack borderItem = resolveItem(cfg.borderMaterial(), Material.GRAY_STAINED_GLASS_PANE)
+                .name(cfg.borderName())
+                .build();
 
         for (String row : patternList) {
             for (char ch : row.toCharArray()) {
@@ -92,8 +102,7 @@ public final class ProfileMenu {
             boolean canCreate = current < max;
 
             String matStr = canCreate ? cfg.createButtonMaterial() : cfg.createButtonMaterialLimitReached();
-            Material mat = Material.matchMaterial(matStr);
-            if (mat == null) mat = canCreate ? Material.EMERALD : Material.BARRIER;
+            Material fallback = canCreate ? Material.EMERALD : Material.BARRIER;
 
             String displayName = canCreate ? cfg.createButtonName() : cfg.createButtonNameLimitReached();
 
@@ -106,7 +115,7 @@ public final class ProfileMenu {
                 );
             }
 
-            return ItemBuilder.of(mat)
+            return resolveItem(matStr, fallback)
                     .name(displayName)
                     .lore(formattedLore.toArray(new String[0]))
                     .build();
@@ -123,31 +132,44 @@ public final class ProfileMenu {
 
         // Bind Profile Slots dynamically
         List<ProfileData> profileList = new ArrayList<>(profiles.values());
+        int activeSlotIdx = -1;
+        ProfileData activeProfileData = null;
+        for (int i = 0; i < profileSlots.size(); i++) {
+            int index = i;
+            if (index < profileList.size()) {
+                ProfileData data = profileList.get(index);
+                if (data.name().equals(activeProfile)) {
+                    activeSlotIdx = profileSlots.get(i);
+                    activeProfileData = data;
+                    break;
+                }
+            }
+        }
+        final int finalActiveSlot = activeSlotIdx;
+        final ProfileData finalActiveData = activeProfileData;
+
         for (int i = 0; i < profileSlots.size(); i++) {
             final int slot = profileSlots.get(i);
             final int index = i;
             builder = builder.item(slot, () -> {
                 if (index >= profileList.size()) {
-                    Material emptyMat = Material.matchMaterial(cfg.emptySlotMaterial());
-                    if (emptyMat == null) emptyMat = Material.LIGHT_GRAY_STAINED_GLASS_PANE;
-                    return ItemBuilder.of(emptyMat)
+                    return resolveItem(cfg.emptySlotMaterial(), Material.LIGHT_GRAY_STAINED_GLASS_PANE)
                             .name(cfg.emptySlotName())
                             .build();
                 }
                 ProfileData data = profileList.get(index);
                 boolean isActive = data.name().equals(activeProfile);
 
-                Material profileMat = Material.matchMaterial(
-                        isActive ? cfg.activeProfileMaterial() : cfg.inactiveProfileMaterial()
-                );
-                if (profileMat == null) {
-                    profileMat = isActive ? Material.BOOK : Material.WRITTEN_BOOK;
+                if (isActive) {
+                    return buildActiveProfileItem(player, data, cfg);
                 }
 
-                String displayName = isActive ? cfg.activeProfileName() : cfg.inactiveProfileName();
-                displayName = displayName.replace("<name>", data.name());
+                String matStr = cfg.inactiveProfileMaterial();
+                Material fallback = Material.WRITTEN_BOOK;
 
-                List<String> rawLore = isActive ? cfg.activeProfileLore() : cfg.inactiveProfileLore();
+                String displayName = cfg.inactiveProfileName().replace("<name>", data.name());
+
+                List<String> rawLore = cfg.inactiveProfileLore();
                 List<String> formattedLore = new ArrayList<>();
                 for (String line : rawLore) {
                     formattedLore.add(line
@@ -155,14 +177,18 @@ public final class ProfileMenu {
                             .replace("<last_used>", dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
                             .replace("<balance>", String.format(Locale.ROOT, "%.2f", data.balance()))
                             .replace("<group>", data.primaryGroup() != null ? data.primaryGroup() : "default")
+                            .replace("<playtime>", data.state().playtimeSeconds() != null
+                                    ? Format.duration(Duration.ofSeconds(data.state().playtimeSeconds())) : "0s")
+                            .replace("<jobs>", formatSkills(data.state().jobs()))
+                            .replace("<mcmmo>", formatSkills(data.state().mcmmo()))
+                            .replace("<auraskills>", formatSkills(data.state().auraskills()))
                     );
                 }
 
-                var item = ItemBuilder.of(profileMat)
+                var item = resolveItem(matStr, fallback)
                         .name(displayName)
                         .lore(formattedLore.toArray(new String[0]));
 
-                if (isActive) item.glow();
                 return item.build();
             }).onClick(slot, ctx -> {
                 if (index >= profileList.size()) return;
@@ -215,7 +241,34 @@ public final class ProfileMenu {
             });
         }
 
-        builder.build().open(player);
+        final AtomicReference<TaskHandle> taskRef = new AtomicReference<>();
+        final AtomicReference<ChestMenu> menuRef = new AtomicReference<>();
+
+        builder = builder.onClose(p -> {
+            TaskHandle task = taskRef.get();
+            if (task != null) {
+                task.cancel();
+            }
+        });
+
+        ChestMenu menu = builder.build();
+        menuRef.set(menu);
+        menu.open(player);
+
+        TaskHandle task = Scheduler.runRepeating(
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1),
+                () -> {
+                    if (player.isOnline() && finalActiveSlot != -1 && finalActiveData != null) {
+                        ChestMenu m = menuRef.get();
+                        if (m != null) {
+                            ItemStack updatedItem = buildActiveProfileItem(player, finalActiveData, cfg);
+                            m.setItem(player, finalActiveSlot, updatedItem);
+                        }
+                    }
+                }
+        );
+        taskRef.set(task);
     }
 
     private void playErrorSound(@NonNull Player player, ProfileConfig.@NonNull GuiSection cfg) {
@@ -274,5 +327,65 @@ public final class ProfileMenu {
                     open(p);
                 })
                 .start(player);
+    }
+
+    private @NonNull ItemStack buildActiveProfileItem(@NonNull Player player, @NonNull ProfileData data, ProfileConfig.@NonNull GuiSection cfg) {
+        String matStr = cfg.activeProfileMaterial();
+        Material fallback = Material.BOOK;
+
+        String displayName = cfg.activeProfileName().replace("<name>", data.name());
+
+        double balanceVal = EconomyBridge.balance(player);
+        String groupVal = PermissionBridge.getPrimaryGroup(player.getUniqueId());
+        if (groupVal == null) groupVal = "default";
+
+        long elapsed = manager.getElapsedSessionSeconds(player.getUniqueId());
+        long base = data.state().playtimeSeconds() != null ? data.state().playtimeSeconds() : 0L;
+        long playtimeSecs = base + elapsed;
+
+        Map<String, SkillData> jobs = IntegrationManager.jobs().capture(player);
+        Map<String, SkillData> mcmmo = IntegrationManager.mcmmo().capture(player);
+        Map<String, SkillData> auraskills = IntegrationManager.auraSkills().capture(player);
+
+        List<String> rawLore = cfg.activeProfileLore();
+        List<String> formattedLore = new ArrayList<>();
+        for (String line : rawLore) {
+            formattedLore.add(line
+                    .replace("<created>", dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
+                    .replace("<last_used>", dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
+                    .replace("<balance>", String.format(Locale.ROOT, "%.2f", balanceVal))
+                    .replace("<group>", groupVal)
+                    .replace("<playtime>", Format.duration(Duration.ofSeconds(playtimeSecs)))
+                    .replace("<jobs>", formatSkills(jobs))
+                    .replace("<mcmmo>", formatSkills(mcmmo))
+                    .replace("<auraskills>", formatSkills(auraskills))
+            );
+        }
+
+        var item = resolveItem(matStr, fallback)
+                .name(displayName)
+                .lore(formattedLore.toArray(new String[0]))
+                .glow();
+
+        return item.build();
+    }
+
+    private @NonNull String formatSkills(@Nullable Map<String, SkillData> map) {
+        if (map == null || map.isEmpty()) {
+            return "None";
+        }
+        List<String> list = new ArrayList<>();
+        for (Map.Entry<String, SkillData> entry : map.entrySet()) {
+            list.add(entry.getKey() + " (Lv. " + entry.getValue().level() + ")");
+        }
+        return String.join(", ", list);
+    }
+
+    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
+        if (input.startsWith("head:") || input.startsWith("skull:")) {
+            String texture = input.substring(input.indexOf(':') + 1);
+            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
+        }
+        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
     }
 }

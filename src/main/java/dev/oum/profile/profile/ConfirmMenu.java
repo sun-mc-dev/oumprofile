@@ -3,6 +3,7 @@ package dev.oum.profile.profile;
 import dev.oum.oumlib.inventory.ChestMenu;
 import dev.oum.oumlib.inventory.ItemBuilder;
 import dev.oum.oumlib.scheduler.Scheduler;
+import dev.oum.oumlib.bridge.item.ItemBridge;
 import dev.oum.profile.config.ProfileConfig.ConfirmGuiSection;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -40,9 +41,9 @@ public final class ConfirmMenu {
                 .rows(config.rows())
                 .pattern(patternList.toArray(new String[0]));
 
-        Material borderMat = Material.matchMaterial(config.borderMaterial());
-        if (borderMat == null) borderMat = Material.GRAY_STAINED_GLASS_PANE;
-        ItemStack borderItem = ItemBuilder.of(borderMat).name(config.borderName()).build();
+        ItemStack borderItem = resolveItem(config.borderMaterial(), Material.GRAY_STAINED_GLASS_PANE)
+                .name(config.borderName())
+                .build();
 
         for (String row : patternList) {
             for (char ch : row.toCharArray()) {
@@ -53,9 +54,6 @@ public final class ConfirmMenu {
         }
 
         builder = builder.bind(confirmChar, () -> {
-            Material mat = Material.matchMaterial(config.confirmMaterial());
-            if (mat == null) mat = Material.GREEN_WOOL;
-
             List<String> formattedLore = new ArrayList<>();
             for (String line : config.confirmLore()) {
                 formattedLore.add(line
@@ -64,7 +62,7 @@ public final class ConfirmMenu {
                 );
             }
 
-            return ItemBuilder.of(mat)
+            return resolveItem(config.confirmMaterial(), Material.GREEN_WOOL)
                     .name(config.confirmName().replace("<profile>", targetName).replace("<name>", targetName))
                     .lore(formattedLore.toArray(new String[0]))
                     .build();
@@ -74,9 +72,6 @@ public final class ConfirmMenu {
         });
 
         builder = builder.bind(denyChar, () -> {
-            Material mat = Material.matchMaterial(config.denyMaterial());
-            if (mat == null) mat = Material.RED_WOOL;
-
             List<String> formattedLore = new ArrayList<>();
             for (String line : config.denyLore()) {
                 formattedLore.add(line
@@ -85,7 +80,7 @@ public final class ConfirmMenu {
                 );
             }
 
-            return ItemBuilder.of(mat)
+            return resolveItem(config.denyMaterial(), Material.RED_WOOL)
                     .name(config.denyName().replace("<profile>", targetName).replace("<name>", targetName))
                     .lore(formattedLore.toArray(new String[0]))
                     .build();
@@ -95,5 +90,13 @@ public final class ConfirmMenu {
         });
 
         builder.build().open(player);
+    }
+
+    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
+        if (input.startsWith("head:") || input.startsWith("skull:")) {
+            String texture = input.substring(input.indexOf(':') + 1);
+            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
+        }
+        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
     }
 }

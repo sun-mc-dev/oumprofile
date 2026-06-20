@@ -1,6 +1,7 @@
 package dev.oum.profile.api;
 
 import dev.oum.oumlib.scheduler.Promise;
+import dev.oum.profile.integration.SkillData;
 import dev.oum.profile.model.ProfileData;
 import dev.oum.profile.profile.ProfileManager;
 import org.bukkit.entity.Player;
@@ -182,5 +183,79 @@ public final class ProfileAPI {
      */
     public static int getMaxProfiles(@NonNull Player player) {
         return manager().getMaxProfiles(player);
+    }
+
+    /**
+     * Gets the saved mcMMO skill levels and experience for a specific profile.
+     *
+     * @param uuid The player UUID.
+     * @param name The profile name.
+     * @return Map of skill names to SkillData, or null.
+     */
+    public static @Nullable Map<String, SkillData> getProfileMcMMO(@NonNull UUID uuid, @NonNull String name) {
+        ProfileData data = getProfiles(uuid).get(name);
+        return data != null ? data.state().mcmmo() : null;
+    }
+
+    /**
+     * Gets the saved AuraSkills skill levels and experience for a specific profile.
+     *
+     * @param uuid The player UUID.
+     * @param name The profile name.
+     * @return Map of skill names to SkillData, or null.
+     */
+    public static @Nullable Map<String, SkillData> getProfileAuraSkills(@NonNull UUID uuid, @NonNull String name) {
+        ProfileData data = getProfiles(uuid).get(name);
+        return data != null ? data.state().auraskills() : null;
+    }
+
+    /**
+     * Gets the saved JobsReborn jobs levels and experience for a specific profile.
+     *
+     * @param uuid The player UUID.
+     * @param name The profile name.
+     * @return Map of job names to SkillData, or null.
+     */
+    public static @Nullable Map<String, SkillData> getProfileJobs(@NonNull UUID uuid, @NonNull String name) {
+        ProfileData data = getProfiles(uuid).get(name);
+        return data != null ? data.state().jobs() : null;
+    }
+
+    /**
+     * Gets the saved custom multi-currency balances for a specific profile.
+     *
+     * @param uuid The player UUID.
+     * @param name The profile name.
+     * @return Map of currency keys to balances, or null.
+     */
+    public static @Nullable Map<String, Double> getProfileCurrencies(@NonNull UUID uuid, @NonNull String name) {
+        ProfileData data = getProfiles(uuid).get(name);
+        return data != null ? data.state().currencies() : null;
+    }
+
+    /**
+     * Gets the saved vanilla statistics for a specific profile.
+     *
+     * @param uuid The player UUID.
+     * @param name The profile name.
+     * @return Map of statistic entry strings to values, or null.
+     */
+    public static @Nullable Map<String, Integer> getProfileStatistics(@NonNull UUID uuid, @NonNull String name) {
+        ProfileData data = getProfiles(uuid).get(name);
+        return data != null ? data.state().statistics() : null;
+    }
+
+    /**
+     * Gets the saved total playtime in seconds for a specific profile.
+     *
+     * @param uuid The player UUID.
+     * @param name The profile name.
+     * @return Total playtime in seconds, or 0 if not found.
+     */
+    public static long getProfilePlaytimeSeconds(@NonNull UUID uuid, @NonNull String name) {
+        ProfileData data = getProfiles(uuid).get(name);
+        if (data == null) return 0L;
+        Long pt = data.state().playtimeSeconds();
+        return pt != null ? pt : 0L;
     }
 }

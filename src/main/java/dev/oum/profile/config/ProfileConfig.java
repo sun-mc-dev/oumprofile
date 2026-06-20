@@ -78,7 +78,16 @@ public record ProfileConfig(
         String dateFormat,
 
         @Comment("Enable administrative alerts when players switch, create, or delete profiles")
-        boolean adminAlertsEnabled
+        boolean adminAlertsEnabled,
+
+        @Comment("Multi-currency economy settings")
+        EconomySection economy,
+
+        @Comment("Skill and Job synchronization settings")
+        SkillSection skills,
+
+        @Comment("Vanilla statistics synchronization settings")
+        StatisticsSection statistics
 ) implements ConfigSection {
 
     @Contract(" -> new")
@@ -147,8 +156,8 @@ public record ProfileConfig(
                                 "  PPPPP  ",
                                 "####C####"
                         ),
-                        "EMERALD",
-                        "BARRIER",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNWZmMzE0MzFkNjQ1ODdmZjZlZjk4YzA2NzU4MTA2ODFmOGMxM2JmOTZmNTFkOWNiMDdlZDc4NTJiMmZmZDEifX19",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvODE5OWI1ZWUzMjBlNzk5N2Q5MWJiNWY4NjY1ZjNkMzJhZTQ5MjBlMDNjNmIzZDliN2VlY2E2OTcxMTk5OTcifX19",
                         "<color:#a6e3a1><b>Create New Profile</b></color>",
                         "<color:#f38ba8><b>Profile Limit Reached</b></color>",
                         List.of(
@@ -161,9 +170,9 @@ public record ProfileConfig(
                                 "",
                                 "<color:#f38ba8>Purchase more slots on our store</color>"
                         ),
-                        "BOOK",
-                        "WRITTEN_BOOK",
-                        "LIGHT_GRAY_STAINED_GLASS_PANE",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZjdmYWFlMWQxOTgzNmJkMDc4NTQyNmU0ZmQyOGFhNjNhMzgxZTllNzE0OTU1OWVlNmIyYTUwOTk5NWJiY2ZkMiJ9fX0=",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZDVjNmRjMmJiZjUxYzM2Y2ZjNzcxNDU4NWE2YTU2ODNlZjJiMTRkNDdkOGZmNzE0NjU0YTg5M2Y1ZGE2MjIifX19",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDZiYTYzMzQ0ZjQ5ZGQxYzRmNTQ4OGU5MjZiZjNkOWUyYjI5OTE2YTZjNTBkNjEwYmI0MGE1MjczZGM4YzgyIn19fQ==",
                         "<color:#a6e3a1><b><name></b></color> <color:#9399b2>(Active)</color>",
                         "<color:#cba6f7><b><name></b></color>",
                         "<color:#585b70>Empty Slot</color>",
@@ -171,8 +180,10 @@ public record ProfileConfig(
                                 "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>",
                                 "<color:#9399b2>Created: <color:#cdd6f4><created></color></color>",
                                 "<color:#9399b2>Last Used: <color:#cdd6f4><last_used></color></color>",
+                                "<color:#9399b2>Playtime: <color:#f9e2af><playtime></color></color>",
                                 "<color:#9399b2>Balance: <color:#f9e2af>$<balance></color></color>",
                                 "<color:#9399b2>Rank Group: <color:#b4befe><group></color></color>",
+                                "<color:#9399b2>Jobs: <color:#f9e2af><jobs></color></color>",
                                 "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>",
                                 "<color:#a6e3a1>Currently Active</color>"
                         ),
@@ -180,8 +191,10 @@ public record ProfileConfig(
                                 "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>",
                                 "<color:#9399b2>Created: <color:#cdd6f4><created></color></color>",
                                 "<color:#9399b2>Last Used: <color:#cdd6f4><last_used></color></color>",
+                                "<color:#9399b2>Playtime: <color:#f9e2af><playtime></color></color>",
                                 "<color:#9399b2>Balance: <color:#f9e2af>$<balance></color></color>",
                                 "<color:#9399b2>Rank Group: <color:#b4befe><group></color></color>",
+                                "<color:#9399b2>Jobs: <color:#f9e2af><jobs></color></color>",
                                 "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>",
                                 "<color:#74c7ec>Left-Click to switch</color>",
                                 "<color:#f38ba8>Right-Click to delete</color>"
@@ -212,7 +225,7 @@ public record ProfileConfig(
                                 "#########"
                         ),
                         "C",
-                        "RED_WOOL",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmViNTg4YjIxYTZmOThhZDFmZjRlMDg1YzU1MmRjYjA1MGVmYzljYWI0MjdmNDYwNDhmMThmYzgwMzQ3NWY3In19fQ==",
                         "<color:#f38ba8><b>Confirm Deletion</b></color>",
                         List.of(
                                 "<color:#a6adc8>Clicking here will permanently</color>",
@@ -221,7 +234,7 @@ public record ProfileConfig(
                                 "<color:#f38ba8><b>WARNING: This cannot be undone!</b></color>"
                         ),
                         "D",
-                        "GREEN_WOOL",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDMxMmNhNDYzMmRlZjVmZmFmMmViMGQ5ZDdjYzdiNTVhNTBjNGUzOTIwZDkwMzcyYWFiMTQwNzgxZjVkZmJjNCJ9fX0=",
                         "<color:#a6e3a1><b>Cancel</b></color>",
                         List.of(
                                 "<color:#a6adc8>Click to keep your profile</color>",
@@ -240,14 +253,14 @@ public record ProfileConfig(
                                 "#########"
                         ),
                         "C",
-                        "GREEN_WOOL",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDMxMmNhNDYzMmRlZjVmZmFmMmViMGQ5ZDdjYzdiNTVhNTBjNGUzOTIwZDkwMzcyYWFiMTQwNzgxZjVkZmJjNCJ9fX0=",
                         "<color:#a6e3a1><b>Confirm Creation</b></color>",
                         List.of(
                                 "<color:#a6adc8>Click here to create</color>",
                                 "<color:#a6adc8>profile <color:#cba6f7><name></color>.</color>"
                         ),
                         "D",
-                        "RED_WOOL",
+                        "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmViNTg4YjIxYTZmOThhZDFmZjRlMDg1YzU1MmRjYjA1MGVmYzljYWI0MjdmNDYwNDhmMThmYzgwMzQ3NWY3In19fQ==",
                         "<color:#f38ba8><b>Cancel</b></color>",
                         List.of(
                                 "<color:#a6adc8>Click to cancel creation</color>",
@@ -259,8 +272,37 @@ public record ProfileConfig(
                 List.of(1, 3, 5, 10),
                 "default",
                 "yyyy-MM-dd HH:mm",
-                true
+                true,
+                new EconomySection(true, List.of("vault", "playerpoints")),
+                new SkillSection(true, true, true),
+                new StatisticsSection(true, List.of("MOB_KILLS", "DEATHS", "JUMP"))
         );
+    }
+
+    public record EconomySection(
+            @Comment("Enable multi-currency economy storage")
+            boolean enabled,
+            @Comment("List of currencies to save and restore per-profile (e.g. vault, playerpoints)")
+            List<String> currencies
+    ) implements ConfigSection {
+    }
+
+    public record SkillSection(
+            @Comment("Enable mcMMO skill level synchronization")
+            boolean mcmmoEnabled,
+            @Comment("Enable AuraSkills/AureliumSkills level synchronization")
+            boolean auraSkillsEnabled,
+            @Comment("Enable JobsReborn job level synchronization")
+            boolean jobsEnabled
+    ) implements ConfigSection {
+    }
+
+    public record StatisticsSection(
+            @Comment("Enable vanilla statistics synchronization")
+            boolean enabled,
+            @Comment("List of statistic names to save and restore per-profile")
+            List<String> tracked
+    ) implements ConfigSection {
     }
 
     public record SwitchSection(
