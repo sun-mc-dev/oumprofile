@@ -1,6 +1,5 @@
 name: OumProfile
 version: 1.0-HOTFIX
-
 main: dev.oum.profile.OumProfile
 api-version: '1.21'
 folia-supported: true
