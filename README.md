@@ -1,5 +1,11 @@
 # OumProfile
 
+Available at:
+
+[![Modrinth](https://img.shields.io/badge/Modrinth-oumprofile-00C853?style=for-the-badge&logo=modrinth&logoColor=white)](https://modrinth.com/plugin/oumprofile)
+[![Hangar](https://img.shields.io/badge/Hangar-OumProfile-007FFF?style=for-the-badge&logo=papermc&logoColor=white)](https://hangar.papermc.io/sun-dev/OumProfile)
+[![SpigotMC](https://img.shields.io/badge/SpigotMC-oumprofile-FF8C00?style=for-the-badge&logo=spigotmc&logoColor=white)](https://www.spigotmc.org/resources/oumprofile.131872/)
+
 OumProfile is a multiprofile plugin for Paper servers. It allows players to create and switch between different profile
 slots, each with their own inventory, status attributes, LuckPerms group, and Vault economy balance. This is useful for
 servers offering distinct loadouts or gameplay modes on a single account.
