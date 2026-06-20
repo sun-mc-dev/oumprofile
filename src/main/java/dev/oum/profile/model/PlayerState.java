@@ -1,9 +1,14 @@
 package dev.oum.profile.model;
 
 import com.google.gson.Gson;
+import dev.oum.oumlib.bridge.economy.EconomyBridge;
 import dev.oum.oumlib.util.ItemSerializer;
+import dev.oum.profile.config.ProfileConfig;
+import dev.oum.profile.integration.IntegrationManager;
+import dev.oum.profile.integration.SkillData;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
@@ -11,9 +16,7 @@ import org.bukkit.potion.PotionEffectType;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 public record PlayerState(
         String inventory,
@@ -33,7 +36,14 @@ public record PlayerState(
         int remainingAir,
         boolean allowFlight,
         boolean isFlying,
-        @Nullable LocationEntry location
+        @Nullable LocationEntry location,
+
+        @Nullable Map<String, SkillData> mcmmo,
+        @Nullable Map<String, SkillData> auraskills,
+        @Nullable Map<String, SkillData> jobs,
+        @Nullable Map<String, Double> currencies,
+        @Nullable Map<String, Integer> statistics,
+        @Nullable Long playtimeSeconds
 ) {
 
     private static final Gson GSON = new Gson();
@@ -52,11 +62,18 @@ public record PlayerState(
                 300,
                 false,
                 false,
-                null
+                null,
+                new HashMap<>(),
+                new HashMap<>(),
+                new HashMap<>(),
+                new HashMap<>(),
+                new HashMap<>(),
+                0L
         );
     }
 
-    public static @NonNull PlayerState capture(@NonNull Player player, boolean saveLocation) {
+    public static @NonNull PlayerState capture(@NonNull Player player, boolean saveLocation,
+                                               @NonNull ProfileConfig config, long currentPlaytimeSeconds) {
         ItemStack[] invSlots = player.getInventory().getStorageContents();
 
         var maxHpAttr = player.getAttribute(Attribute.MAX_HEALTH);
@@ -81,6 +98,53 @@ public record PlayerState(
             );
         }
 
+        Map<String, Double> currencies = new HashMap<>();
+        if (config.economy() != null && config.economy().enabled() && config.economy().currencies() != null) {
+            for (String currency : config.economy().currencies()) {
+                try {
+                    double bal = EconomyBridge.balance(currency, player);
+                    currencies.put(currency, bal);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        Map<String, Integer> statistics = new HashMap<>();
+        if (config.statistics() != null && config.statistics().enabled() && config.statistics().tracked() != null) {
+            for (String entry : config.statistics().tracked()) {
+                try {
+                    String[] parts = entry.split(":", 2);
+                    Statistic statistic = Statistic.valueOf(parts[0].toUpperCase(Locale.ROOT));
+                    if (parts.length == 1) {
+                        statistics.put(entry, player.getStatistic(statistic));
+                    } else {
+                        String param = parts[1].toUpperCase(Locale.ROOT);
+                        if (statistic.getType() == Statistic.Type.BLOCK || statistic.getType() == Statistic.Type.ITEM) {
+                            Material mat = Material.valueOf(param);
+                            statistics.put(entry, player.getStatistic(statistic, mat));
+                        } else if (statistic.getType() == Statistic.Type.ENTITY) {
+                            EntityType entityType = EntityType.valueOf(param);
+                            statistics.put(entry, player.getStatistic(statistic, entityType));
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        Map<String, SkillData> mcmmoData = null;
+        if (config.skills() != null && config.skills().mcmmoEnabled()) {
+            mcmmoData = IntegrationManager.mcmmo().capture(player);
+        }
+        Map<String, SkillData> auraskillsData = null;
+        if (config.skills() != null && config.skills().auraSkillsEnabled()) {
+            auraskillsData = IntegrationManager.auraSkills().capture(player);
+        }
+        Map<String, SkillData> jobsData = null;
+        if (config.skills() != null && config.skills().jobsEnabled()) {
+            jobsData = IntegrationManager.jobs().capture(player);
+        }
+
         return new PlayerState(
                 ItemSerializer.serializeArray(invSlots),
                 ItemSerializer.serializeArray(player.getInventory().getArmorContents()),
@@ -99,7 +163,13 @@ public record PlayerState(
                 player.getRemainingAir(),
                 player.getAllowFlight(),
                 player.isFlying(),
-                loc
+                loc,
+                mcmmoData,
+                auraskillsData,
+                jobsData,
+                currencies,
+                statistics,
+                currentPlaytimeSeconds
         );
     }
 
@@ -107,7 +177,7 @@ public record PlayerState(
         return GSON.fromJson(json, PlayerState.class);
     }
 
-    public void apply(@NonNull Player player, boolean restoreLocation) {
+    public void apply(@NonNull Player player, boolean restoreLocation, @NonNull ProfileConfig config) {
         player.getInventory().setStorageContents(ItemSerializer.deserializeArray(inventory));
         player.getInventory().setArmorContents(ItemSerializer.deserializeArray(armor));
         player.getInventory().setItemInOffHand(ItemSerializer.deserialize(offhand));
@@ -156,6 +226,39 @@ public record PlayerState(
             if (world != null) {
                 player.teleport(new Location(world, location.x(), location.y(), location.z(), location.yaw(), location.pitch()));
             }
+        }
+
+        if (config.statistics() != null && config.statistics().enabled() && statistics != null) {
+            for (String entry : config.statistics().tracked()) {
+                try {
+                    String[] parts = entry.split(":", 2);
+                    Statistic statistic = Statistic.valueOf(parts[0].toUpperCase(Locale.ROOT));
+                    int value = statistics.getOrDefault(entry, 0);
+                    if (parts.length == 1) {
+                        player.setStatistic(statistic, value);
+                    } else {
+                        String param = parts[1].toUpperCase(Locale.ROOT);
+                        if (statistic.getType() == Statistic.Type.BLOCK || statistic.getType() == Statistic.Type.ITEM) {
+                            Material mat = Material.valueOf(param);
+                            player.setStatistic(statistic, mat, value);
+                        } else if (statistic.getType() == Statistic.Type.ENTITY) {
+                            EntityType entityType = EntityType.valueOf(param);
+                            player.setStatistic(statistic, entityType, value);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        if (config.skills() != null && config.skills().mcmmoEnabled() && mcmmo != null) {
+            IntegrationManager.mcmmo().restore(player, mcmmo);
+        }
+        if (config.skills() != null && config.skills().auraSkillsEnabled() && auraskills != null) {
+            IntegrationManager.auraSkills().restore(player, auraskills);
+        }
+        if (config.skills() != null && config.skills().jobsEnabled() && jobs != null) {
+            IntegrationManager.jobs().restore(player, jobs);
         }
 
         player.updateInventory();
