@@ -516,4 +516,4 @@ Developed with ❤️ by the sun-plugins team.
 
 ## License
 
-This project is licensed under a custom software license agreement. See the [LICENSE](LICENSE) file for the full terms.
+This project is licensed under a custom software license agreement. See the [LICENSE](LICENSE.md) file for the full terms.
