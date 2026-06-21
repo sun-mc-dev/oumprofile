@@ -511,3 +511,9 @@ For support, bug reports, feature requests, or developer discussions, join our o
 * **Discord Support Server:** [https://discord.gg/maDcwPV6KB](https://discord.gg/maDcwPV6KB)
 
 Developed with ❤️ by the sun-plugins team.
+
+---
+
+## License
+
+This project is licensed under a custom software license agreement. See the [LICENSE](LICENSE) file for the full terms.
