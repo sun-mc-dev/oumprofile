@@ -42,7 +42,10 @@ jobs:
           cp target/oumprofile-*.jar target/OumProfile-dev.jar
 
       - name: Delete Old Release
-        run: gh release delete dev-build --cleanup-tag --yes || true
+        run: |
+          if gh release view dev-build >/dev/null 2>&1; then
+            gh release delete dev-build --cleanup-tag --yes
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -53,11 +56,7 @@ jobs:
           git push origin dev-build
 
       - name: Publish Dev-Build Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: dev-build
-          name: "Development Build"
-          body: "This is an automated development build of the main branch."
-          draft: false
-          prerelease: true
-          files: target/OumProfile-dev.jar
+        run: |
+          gh release create dev-build target/OumProfile-dev.jar --title "Development Build" --notes "This is an automated development build of the main branch." --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
