@@ -23,6 +23,7 @@ jobs:
         with:
           repository: sun-mc-dev/oumlib
           path: oumlib
+          ref: dev
           token: ${{ secrets.GH_PAT || github.token }}
 
       - name: Set up JDK 21
