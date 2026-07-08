@@ -71,36 +71,40 @@ The following placeholders are supported under the `oumprofile` namespace:
 
 ### Player Commands
 
-| Command                  | Description                                | Permission               | Default |
-|:-------------------------|:-------------------------------------------|:-------------------------|:--------|
-| `/profile`               | Opens the profile selection GUI.           | `profiles.use`           | True    |
-| `/profile list`          | Lists all created profiles in chat.        | `profiles.use`           | True    |
-| `/profile current`       | Displays the active profile name.          | `profiles.use`           | True    |
-| `/profile create <name>` | Creates a new profile with the given name. | `profiles.create.<name>` | OP      |
-| `/profile switch <name>` | Switches to the specified profile.         | `profiles.use`           | True    |
-| `/profile delete <name>` | Deletes the specified profile.             | `profiles.use`           | True    |
-| `/profile alerts`        | Toggles receiving admin profile alerts.    | `profiles.alerts`        | OP      |
+| Command                            | Description                                | Permission               | Default |
+|:-----------------------------------|:-------------------------------------------|:-------------------------|:--------|
+| `/profile`                         | Opens the profile selection GUI.           | `profiles.use`           | True    |
+| `/profile list`                    | Lists all created profiles in chat.        | `profiles.use`           | True    |
+| `/profile current`                 | Displays the active profile name.          | `profiles.use`           | True    |
+| `/profile create <name>`           | Creates a new profile with the given name. | `profiles.create.<name>` | OP      |
+| `/profile switch <name>`           | Switches to the specified profile.         | `profiles.use`           | True    |
+| `/profile delete <name>`           | Deletes the specified profile.             | `profiles.use`           | True    |
+| `/profile rename <old> <new>`      | Renames a profile.                         | `profiles.use`           | True    |
+| `/profile alerts`                  | Toggles receiving admin profile alerts.    | `profiles.alerts`        | OP      |
 
 *Aliases: `/profiles`, `/prof`*
 
 ### Bypass and Administrative Permissions
 
-| Command / Permission                       | Description                                                  | Default                        |
-|:-------------------------------------------|:-------------------------------------------------------------|:-------------------------------|
-| `/profile admin-open <player>`             | Opens the profile GUI for the specified player.              | OP (requires `profiles.admin`) |
-| `/profile admin-list <player>`             | Lists all profiles of the specified player.                  | OP (requires `profiles.admin`) |
-| `/profile admin-create <player> <profile>` | Creates a profile for the specified player.                  | OP (requires `profiles.admin`) |
-| `/profile admin-switch <player> <profile>` | Forces the specified player to switch to a profile.          | OP (requires `profiles.admin`) |
-| `/profile admin-delete <player> <profile>` | Deletes a profile for the specified player.                  | OP (requires `profiles.admin`) |
-| `/profile debug`                           | Toggles debug logging in console.                            | OP (requires `profiles.admin`) |
-| `profiles.admin`                           | Access to administrative commands and config reload.         | OP                             |
-| `profiles.create.*`                        | Permission to create profiles with any name.                 | OP                             |
-| `profiles.max.unlimited`                   | Bypasses all profile slot limits.                            | OP                             |
-| `profiles.max.<number>`                    | Sets the maximum profile slot limit (e.g. `profiles.max.5`). | False                          |
-| `profiles.bypass.combat`                   | Allows switching profiles while tagged in combat.            | OP                             |
-| `profiles.bypass.warmup`                   | Bypasses the switch countdown warmup.                        | OP                             |
-| `profiles.bypass.cooldown`                 | Bypasses the switch cooldown.                                | OP                             |
-| `profiles.alerts`                          | Receives administrative alerts for profile actions.          | OP                             |
+| Command / Permission                              | Description                                                  | Default                        |
+|:--------------------------------------------------|:-------------------------------------------------------------|:-------------------------------|
+| `/profile admin open <player>`                    | Opens the profile GUI for the specified player.              | OP (requires `profiles.admin`) |
+| `/profile admin list <player>`                    | Lists all profiles of the specified player.                  | OP (requires `profiles.admin`) |
+| `/profile admin create <player> <profile>`        | Creates a profile for the specified player.                  | OP (requires `profiles.admin`) |
+| `/profile admin switch <player> <profile>`        | Forces the specified player to switch to a profile.          | OP (requires `profiles.admin`) |
+| `/profile admin delete <player> <profile>`        | Deletes a profile for the specified player.                  | OP (requires `profiles.admin`) |
+| `/profile admin rename <player> <old> <new>`      | Renames a profile for the specified player.                  | OP (requires `profiles.admin`) |
+| `/profile admin export <player> <profile>`        | Exports a player's profile to a JSON file.                   | OP (requires `profiles.admin`) |
+| `/profile admin import <player> <file>`           | Imports a profile from a JSON file for a player.             | OP (requires `profiles.admin`) |
+| `/profile debug`                                  | Toggles debug logging in console.                            | OP (requires `profiles.admin`) |
+| `profiles.admin`                                  | Access to administrative commands and config reload.         | OP                             |
+| `profiles.create.*`                               | Permission to create profiles with any name.                 | OP                             |
+| `profiles.max.unlimited`                          | Bypasses all profile slot limits.                            | OP                             |
+| `profiles.max.<number>`                           | Sets the maximum profile slot limit (e.g. `profiles.max.5`). | False                          |
+| `profiles.bypass.combat`                          | Allows switching profiles while tagged in combat.            | OP                             |
+| `profiles.bypass.warmup`                          | Bypasses the switch countdown warmup.                        | OP                             |
+| `profiles.bypass.cooldown`                        | Bypasses the switch cooldown.                                | OP                             |
+| `profiles.alerts`                                 | Receives administrative alerts for profile actions.          | OP                             |
 
 ---
 
@@ -211,6 +215,18 @@ messages:
   warmupCancelledGeneric: "<color:#f38ba8>Profile switch cancelled.</color>"
   debugEnabled: "<color:#a6e3a1>Debug mode enabled.</color>"
   debugDisabled: "<color:#f38ba8>Debug mode disabled.</color>"
+  renameSuccess: "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color>.</color>"
+  renameFail: "<color:#f38ba8>Could not rename profile <color:#fab387>'<old>'</color>.</color>"
+  cannotRenameDefault: "<color:#f38ba8>You cannot rename the default profile.</color>"
+  adminRenameSuccess: "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color> for <color:#cba6f7><target></color>.</color>"
+  adminRenameFail: "<color:#f38ba8>Failed to rename profile for player.</color>"
+  adminAlertRename: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> renamed profile <color:#cba6f7><b><old></b></color> to <color:#cba6f7><b><new></b></color></color>"
+  profileNameTooLong: "<color:#f38ba8>Profile name must be at most <color:#fab387><max></color> characters.</color>"
+  profileNameInvalidChars: "<color:#f38ba8>Profile name contains invalid characters. Only letters, numbers, hyphens and underscores are allowed.</color>"
+  exportSuccess: "<color:#a6e3a1>Exported profile <color:#fab387><name></color> to file.</color>"
+  importSuccess: "<color:#a6e3a1>Imported profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
+  importFail: "<color:#f38ba8>Failed to import profile from file.</color>"
+
 
 # GUI menus and chat input settings
 gui:
@@ -340,19 +356,27 @@ dateFormat: "yyyy-MM-dd HH:mm"
 
 # Enable administrative alerts when players switch, create, or delete profiles
 adminAlertsEnabled: true
+
+# Maximum character length for profile names
+profileNameMaxLength: 16
+
+# Regex pattern for valid profile names
+profileNameRegex: "[a-zA-Z0-9_-]+"
 ```
 
 ### Configuration Options
 
 #### Global Settings
 
-| Option               | Type          | Default            | Description                                                                        |
-|:---------------------|:--------------|:-------------------|:-----------------------------------------------------------------------------------|
-| `debug`              | Boolean       | `false`            | Enable detailed debug logging in the server console.                               |
-| `defaultProfileName` | String        | `default`          | Name of the initial profile created automatically when a player first joins.       |
-| `dateFormat`         | String        | `yyyy-MM-dd HH:mm` | Date format used for displaying profile creation and last used timestamps.         |
-| `adminAlertsEnabled` | Boolean       | `true`             | Broadcast profile actions (create, delete, switch) to administrators.              |
-| `limitTiers`         | List<Integer> | `[1, 3, 5, 10]`    | Profile slot limit thresholds based on permission nodes (e.g. `oumprofile.max.5`). |
+| Option                 | Type          | Default            | Description                                                                        |
+|:-----------------------|:--------------|:-------------------|:-----------------------------------------------------------------------------------|
+| `debug`                | Boolean       | `false`            | Enable detailed debug logging in the server console.                               |
+| `defaultProfileName`   | String        | `default`          | Name of the initial profile created automatically when a player first joins.       |
+| `dateFormat`           | String        | `yyyy-MM-dd HH:mm` | Date format used for displaying profile creation and last used timestamps.         |
+| `adminAlertsEnabled`   | Boolean       | `true`             | Broadcast profile actions (create, delete, switch, rename) to administrators.      |
+| `limitTiers`           | List<Integer> | `[1, 3, 5, 10]`    | Profile slot limit thresholds based on permission nodes (e.g. `oumprofile.max.5`). |
+| `profileNameMaxLength` | Integer       | `16`               | Maximum character length allowed for profile names.                                |
+| `profileNameRegex`     | String        | `[a-zA-Z0-9_-]+`   | Regex pattern that profile names must match.                                       |
 
 #### Switching Settings (`switching`)
 
@@ -456,10 +480,11 @@ public class OumProfileAPIExample {
         boolean hasPvp = ProfileAPI.hasProfile(uuid, "pvp");
         int maxSlots = ProfileAPI.getMaxProfiles(player);
 
-        // Programmatically create, delete, or switch profiles
+        // Programmatically create, delete, switch, or rename profiles
         ProfileAPI.createProfile(player, "pvp");
         ProfileAPI.deleteProfile(player, "pvp");
         ProfileAPI.switchProfile(player, "pvp");
+        ProfileAPI.renameProfile(player, "pvp", "factions");
 
         // Manage switch warmup states
         boolean isWarmupActive = ProfileAPI.hasPendingWarmup(uuid);
@@ -485,6 +510,7 @@ public class OumProfileAPIExample {
 * **`ProfileLoadEvent`**: Fired when a player's profiles are loaded on join.
 * **`ProfileCreateEvent`** *(Cancellable)*: Fired before a profile is created.
 * **`ProfileDeleteEvent`** *(Cancellable)*: Fired before a profile is deleted.
+* **`ProfileRenameEvent`** *(Cancellable)*: Fired before a profile is renamed.
 * **`ProfileSwitchEvent`** *(Cancellable)*: Fired when a profile switch is requested, and right before the switch takes
   place.
 * **`ProfilePostSwitchEvent`**: Fired after a profile switch completes.

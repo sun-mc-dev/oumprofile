@@ -1,22 +1,25 @@
 package dev.oum.profile.model;
 
 import com.google.gson.Gson;
+import dev.oum.oumlib.bridge.StatisticsBridge;
 import dev.oum.oumlib.bridge.economy.EconomyBridge;
 import dev.oum.oumlib.util.ItemSerializer;
+import dev.oum.oumlib.util.Locations;
+import dev.oum.oumlib.util.PotionSerializer;
 import dev.oum.profile.config.ProfileConfig;
 import dev.oum.profile.integration.IntegrationManager;
 import dev.oum.profile.integration.SkillData;
-import org.bukkit.*;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
 import org.bukkit.attribute.Attribute;
-import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 public record PlayerState(
         String inventory,
@@ -30,13 +33,13 @@ public record PlayerState(
         int xpLevel,
         float xpProgress,
         String gameMode,
-        List<PotionEffectEntry> potionEffects,
+        String potionEffects,
         float fallDistance,
         int fireTicks,
         int remainingAir,
         boolean allowFlight,
         boolean isFlying,
-        @Nullable LocationEntry location,
+        @Nullable String location,
 
         @Nullable Map<String, SkillData> mcmmo,
         @Nullable Map<String, SkillData> auraskills,
@@ -56,7 +59,7 @@ public record PlayerState(
                 ItemSerializer.serializeArray(new ItemStack[27]),
                 20.0, 20.0, 20, 5.0f, 0, 0.0f,
                 GameMode.SURVIVAL.name(),
-                new ArrayList<>(),
+                "",
                 0.0f,
                 0,
                 300,
@@ -79,23 +82,11 @@ public record PlayerState(
         var maxHpAttr = player.getAttribute(Attribute.MAX_HEALTH);
         double max = maxHpAttr != null ? maxHpAttr.getValue() : 20.0;
 
-        List<PotionEffectEntry> effects = new ArrayList<>();
-        for (PotionEffect e : player.getActivePotionEffects()) {
-            effects.add(new PotionEffectEntry(e.getType().getKey().toString(), e.getDuration(), e.getAmplifier(),
-                    e.isAmbient(), e.hasParticles(), e.hasIcon()));
-        }
+        String effects = PotionSerializer.serialize(player.getActivePotionEffects());
 
-        LocationEntry loc = null;
+        String loc = null;
         if (saveLocation) {
-            var location = player.getLocation();
-            loc = new LocationEntry(
-                    location.getWorld().getName(),
-                    location.getX(),
-                    location.getY(),
-                    location.getZ(),
-                    location.getYaw(),
-                    location.getPitch()
-            );
+            loc = Locations.serialize(player.getLocation());
         }
 
         Map<String, Double> currencies = new HashMap<>();
@@ -109,27 +100,9 @@ public record PlayerState(
             }
         }
 
-        Map<String, Integer> statistics = new HashMap<>();
+        Map<String, Integer> statistics = null;
         if (config.statistics() != null && config.statistics().enabled() && config.statistics().tracked() != null) {
-            for (String entry : config.statistics().tracked()) {
-                try {
-                    String[] parts = entry.split(":", 2);
-                    Statistic statistic = Statistic.valueOf(parts[0].toUpperCase(Locale.ROOT));
-                    if (parts.length == 1) {
-                        statistics.put(entry, player.getStatistic(statistic));
-                    } else {
-                        String param = parts[1].toUpperCase(Locale.ROOT);
-                        if (statistic.getType() == Statistic.Type.BLOCK || statistic.getType() == Statistic.Type.ITEM) {
-                            Material mat = Material.valueOf(param);
-                            statistics.put(entry, player.getStatistic(statistic, mat));
-                        } else if (statistic.getType() == Statistic.Type.ENTITY) {
-                            EntityType entityType = EntityType.valueOf(param);
-                            statistics.put(entry, player.getStatistic(statistic, entityType));
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
-            }
+            statistics = StatisticsBridge.capture(player, config.statistics().tracked());
         }
 
         Map<String, SkillData> mcmmoData = null;
@@ -202,17 +175,8 @@ public record PlayerState(
         }
 
         player.getActivePotionEffects().forEach(e -> player.removePotionEffect(e.getType()));
-        for (PotionEffectEntry entry : potionEffects) {
-            String typeStr = entry.type();
-            NamespacedKey key = typeStr.contains(":")
-                    ? NamespacedKey.fromString(typeStr)
-                    : NamespacedKey.minecraft(typeStr.toLowerCase(Locale.ROOT));
-
-            PotionEffectType type = key != null ? Registry.MOB_EFFECT.get(key) : null;
-            if (type != null) {
-                player.addPotionEffect(new PotionEffect(type, entry.duration(), entry.amplifier(),
-                        entry.ambient(), entry.particles(), entry.icon()));
-            }
+        for (PotionEffect effect : PotionSerializer.deserialize(potionEffects)) {
+            player.addPotionEffect(effect);
         }
 
         player.setFallDistance(fallDistance);
@@ -222,33 +186,14 @@ public record PlayerState(
         player.setFlying(allowFlight && isFlying);
 
         if (restoreLocation && location != null) {
-            var world = Bukkit.getWorld(location.world());
-            if (world != null) {
-                player.teleport(new Location(world, location.x(), location.y(), location.z(), location.yaw(), location.pitch()));
+            Location loc = Locations.deserialize(location);
+            if (loc != null) {
+                player.teleportAsync(loc);
             }
         }
 
         if (config.statistics() != null && config.statistics().enabled() && statistics != null) {
-            for (String entry : config.statistics().tracked()) {
-                try {
-                    String[] parts = entry.split(":", 2);
-                    Statistic statistic = Statistic.valueOf(parts[0].toUpperCase(Locale.ROOT));
-                    int value = statistics.getOrDefault(entry, 0);
-                    if (parts.length == 1) {
-                        player.setStatistic(statistic, value);
-                    } else {
-                        String param = parts[1].toUpperCase(Locale.ROOT);
-                        if (statistic.getType() == Statistic.Type.BLOCK || statistic.getType() == Statistic.Type.ITEM) {
-                            Material mat = Material.valueOf(param);
-                            player.setStatistic(statistic, mat, value);
-                        } else if (statistic.getType() == Statistic.Type.ENTITY) {
-                            EntityType entityType = EntityType.valueOf(param);
-                            player.setStatistic(statistic, entityType, value);
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
-            }
+            StatisticsBridge.apply(player, config.statistics().tracked(), statistics);
         }
 
         if (config.skills() != null && config.skills().mcmmoEnabled() && mcmmo != null) {
@@ -266,19 +211,5 @@ public record PlayerState(
 
     public @NonNull String toJson() {
         return GSON.toJson(this);
-    }
-
-    public record PotionEffectEntry(String type, int duration, int amplifier, boolean ambient, boolean particles,
-                                    boolean icon) {
-    }
-
-    public record LocationEntry(
-            String world,
-            double x,
-            double y,
-            double z,
-            float yaw,
-            float pitch
-    ) {
     }
 }

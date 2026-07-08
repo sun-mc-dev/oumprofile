@@ -21,17 +21,21 @@ public final class ProfileStorage {
         this.mysql = cfg.type().equalsIgnoreCase("mysql");
         if (mysql) {
             this.db = Database.mysql(cfg.host(), cfg.port(), cfg.database(), cfg.username(), cfg.password());
-            db.runMigrations(ProfileStorage.class, "migrations/mysql/V1__init.sql");
+            db.runMigrations(ProfileStorage.class,
+                    "migrations/mysql/V1__init.sql",
+                    "migrations/mysql/V2__add_active_column.sql");
         } else {
             String filename = cfg.database().endsWith(".db") ? cfg.database() : cfg.database() + ".db";
             this.db = Database.sqlite(new File(OumLib.getDataFolder(), filename));
-            db.runMigrations(ProfileStorage.class, "migrations/sqlite/V1__init.sql");
+            db.runMigrations(ProfileStorage.class,
+                    "migrations/sqlite/V1__init.sql",
+                    "migrations/sqlite/V2__add_active_column.sql");
         }
     }
 
     public @NonNull Promise<List<ProfileData>> loadAll(@NonNull UUID uuid) {
         return db.executeQuery(
-                "SELECT name, created_at, last_used, state_json, balance, primary_group, groups_json FROM oum_profiles WHERE uuid = ?",
+                "SELECT name, created_at, last_used, state_json, balance, primary_group, groups_json, active FROM oum_profiles WHERE uuid = ?",
                 rs -> new ProfileData(
                         rs.getString("name"),
                         rs.getLong("created_at"),
@@ -39,7 +43,8 @@ public final class ProfileStorage {
                         PlayerState.fromJson(rs.getString("state_json")),
                         rs.getDouble("balance"),
                         rs.getString("primary_group"),
-                        rs.getString("groups_json")
+                        rs.getString("groups_json"),
+                        rs.getInt("active") == 1
                 ),
                 uuid.toString().toLowerCase(Locale.ROOT)
         );
@@ -48,19 +53,35 @@ public final class ProfileStorage {
     public @NonNull Promise<Void> save(@NonNull UUID uuid, @NonNull ProfileData data) {
         String id = uuid.toString().toLowerCase(Locale.ROOT);
         String sql = mysql
-                ? "INSERT INTO oum_profiles (uuid, name, created_at, last_used, state_json, balance, primary_group, groups_json) " +
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                ? "INSERT INTO oum_profiles (uuid, name, created_at, last_used, state_json, balance, primary_group, groups_json, active) " +
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                   "ON DUPLICATE KEY UPDATE last_used = VALUES(last_used), state_json = VALUES(state_json), " +
-                  "balance = VALUES(balance), primary_group = VALUES(primary_group), groups_json = VALUES(groups_json)"
-                : "INSERT INTO oum_profiles (uuid, name, created_at, last_used, state_json, balance, primary_group, groups_json) " +
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                  "balance = VALUES(balance), primary_group = VALUES(primary_group), groups_json = VALUES(groups_json), active = VALUES(active)"
+                : "INSERT INTO oum_profiles (uuid, name, created_at, last_used, state_json, balance, primary_group, groups_json, active) " +
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                   "ON CONFLICT (uuid, name) DO UPDATE SET " +
                   "last_used = excluded.last_used, state_json = excluded.state_json, balance = excluded.balance, " +
-                  "primary_group = excluded.primary_group, groups_json = excluded.groups_json";
+                  "primary_group = excluded.primary_group, groups_json = excluded.groups_json, active = excluded.active";
         return db.executeUpdate(
                 sql,
                 id, data.name(), data.createdAt(), data.lastUsed(), data.state().toJson(),
-                data.balance(), data.primaryGroup(), data.groupsJson()
+                data.balance(), data.primaryGroup(), data.groupsJson(), data.active() ? 1 : 0
+        ).map(rows -> null);
+    }
+
+    public @NonNull Promise<Void> setActive(@NonNull UUID uuid, @NonNull String name) {
+        String id = uuid.toString().toLowerCase(Locale.ROOT);
+        return db.executeUpdate(
+                "UPDATE oum_profiles SET active = CASE WHEN name = ? THEN 1 ELSE 0 END WHERE uuid = ?",
+                name, id
+        ).map(rows -> null);
+    }
+
+    public @NonNull Promise<Void> rename(@NonNull UUID uuid, @NonNull String oldName, @NonNull String newName) {
+        String id = uuid.toString().toLowerCase(Locale.ROOT);
+        return db.executeUpdate(
+                "UPDATE oum_profiles SET name = ? WHERE uuid = ? AND name = ?",
+                newName, id, oldName
         ).map(rows -> null);
     }
 

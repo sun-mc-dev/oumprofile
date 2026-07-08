@@ -1,11 +1,11 @@
 package dev.oum.profile.profile;
 
+import dev.oum.oumlib.bridge.economy.EconomyBridge;
+import dev.oum.oumlib.bridge.item.ItemBridge;
+import dev.oum.oumlib.bridge.permission.PermissionBridge;
 import dev.oum.oumlib.inventory.ChestMenu;
 import dev.oum.oumlib.inventory.ClickAction;
-import dev.oum.oumlib.bridge.item.ItemBridge;
 import dev.oum.oumlib.inventory.ItemBuilder;
-import dev.oum.oumlib.bridge.economy.EconomyBridge;
-import dev.oum.oumlib.bridge.permission.PermissionBridge;
 import dev.oum.oumlib.inventory.Layout;
 import dev.oum.oumlib.scheduler.Scheduler;
 import dev.oum.oumlib.scheduler.TaskHandle;
@@ -26,7 +26,6 @@ import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NonNull;
 
 import java.time.Duration;
-import java.util.concurrent.atomic.AtomicReference;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -34,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 @SuppressWarnings("PatternValidation")
 public final class ProfileMenu {
@@ -42,6 +42,14 @@ public final class ProfileMenu {
 
     public ProfileMenu(@NonNull ProfileManager manager) {
         this.manager = manager;
+    }
+
+    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
+        if (input.startsWith("head:") || input.startsWith("skull:")) {
+            String texture = input.substring(input.indexOf(':') + 1);
+            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
+        }
+        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
     }
 
     private @NonNull DateTimeFormatter dateFormatter() {
@@ -287,9 +295,22 @@ public final class ProfileMenu {
                 .cancelWord(cfg.cancelWord())
                 .onInput((p, text) -> {
                     String clean = text.trim();
-                    if (clean.isEmpty() || clean.contains(" ")) {
-                        Text.send(p, mainConfig.messages().invalidProfileName());
-                        return false;
+                    ProfileManager.NameValidation validation = manager.validateProfileName(clean);
+                    switch (validation) {
+                        case EMPTY -> {
+                            Text.send(p, mainConfig.messages().invalidProfileName());
+                            return false;
+                        }
+                        case TOO_LONG -> {
+                            Text.send(p, mainConfig.messages().profileNameTooLong(), "max", String.valueOf(mainConfig.profileNameMaxLength()));
+                            return false;
+                        }
+                        case INVALID_CHARS -> {
+                            Text.send(p, mainConfig.messages().profileNameInvalidChars());
+                            return false;
+                        }
+                        default -> {
+                        }
                     }
                     if (!p.hasPermission(Permissions.CREATE_PREFIX + clean) && !p.hasPermission(Permissions.CREATE_ALL)) {
                         Text.send(p, mainConfig.messages().noPermission(), "name", clean);
@@ -379,13 +400,5 @@ public final class ProfileMenu {
             list.add(entry.getKey() + " (Lv. " + entry.getValue().level() + ")");
         }
         return String.join(", ", list);
-    }
-
-    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
-        if (input.startsWith("head:") || input.startsWith("skull:")) {
-            String texture = input.substring(input.indexOf(':') + 1);
-            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
-        }
-        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
     }
 }
