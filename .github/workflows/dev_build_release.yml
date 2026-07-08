@@ -41,10 +41,14 @@ jobs:
           mvn clean package -DskipTests
           cp target/oumprofile-*.jar target/OumProfile-dev.jar
 
-      - name: Update Tag
+      - name: Delete Old Release
+        run: gh release delete dev-build --cleanup-tag --yes || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-create Tag
         run: |
           git tag -d dev-build || true
-          git push origin :refs/tags/dev-build || true
           git tag dev-build
           git push origin dev-build
 
