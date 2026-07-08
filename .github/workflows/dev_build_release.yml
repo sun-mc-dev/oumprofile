@@ -44,7 +44,7 @@ jobs:
       - name: Delete Old Release
         run: gh release delete dev-build --cleanup-tag --yes || true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Re-create Tag
         run: |
