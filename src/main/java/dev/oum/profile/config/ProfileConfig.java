@@ -87,7 +87,13 @@ public record ProfileConfig(
         SkillSection skills,
 
         @Comment("Vanilla statistics synchronization settings")
-        StatisticsSection statistics
+        StatisticsSection statistics,
+
+        @Comment("Maximum character length for profile names")
+        int profileNameMaxLength,
+
+        @Comment("Regex pattern for valid profile names")
+        String profileNameRegex
 ) implements ConfigSection {
 
     @Contract(" -> new")
@@ -112,7 +118,7 @@ public record ProfileConfig(
                         "<color:#a6e3a1>Created profile <color:#cba6f7><name></color>.</color>",
                         "<color:#f38ba8>Could not delete profile <color:#fab387>'<name>'</color> (active, last remaining, or not found).</color>",
                         "<color:#a6e3a1>Deleted profile <color:#cba6f7><name></color>.</color>",
-                        "<color:#b4befe>OumProfile <color:#585b70>»</color> <color:#9399b2>/profile <list | current | create | switch | delete | reload></color></color>",
+                        "<color:#b4befe>OumProfile <color:#585b70>»</color> <color:#9399b2>/profile <list | current | create | switch | delete | rename | reload></color></color>",
                         "<color:#74c7ec>Your profiles (<color:#fab387><count></color>):</color>",
                         "<color:#a6e3a1>● <color:#cdd6f4><name></color> <color:#585b70>—</color> <color:#9399b2>Active</color></color>",
                         "<color:#9399b2>○ <color:#a6adc8><name></color> <color:#585b70>—</color> <color:#6c7086>Last used <date></color></color>",
@@ -146,7 +152,18 @@ public record ProfileConfig(
                         "<color:#f38ba8>Profile switch cancelled because you took damage.</color>",
                         "<color:#f38ba8>Profile switch cancelled.</color>",
                         "<color:#a6e3a1>Debug mode enabled.</color>",
-                        "<color:#f38ba8>Debug mode disabled.</color>"
+                        "<color:#f38ba8>Debug mode disabled.</color>",
+                        "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color>.</color>",
+                        "<color:#f38ba8>Could not rename profile <color:#fab387>'<old>'</color>.</color>",
+                        "<color:#f38ba8>You cannot rename the default profile.</color>",
+                        "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color> for <color:#cba6f7><target></color>.</color>",
+                        "<color:#f38ba8>Failed to rename profile for player.</color>",
+                        "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> renamed profile <color:#cba6f7><b><old></b></color> to <color:#cba6f7><b><new></b></color></color>",
+                        "<color:#f38ba8>Profile name must be at most <color:#fab387><max></color> characters.</color>",
+                        "<color:#f38ba8>Profile name contains invalid characters. Only letters, numbers, hyphens and underscores are allowed.</color>",
+                        "<color:#a6e3a1>Exported profile <color:#fab387><name></color> to file.</color>",
+                        "<color:#a6e3a1>Imported profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>",
+                        "<color:#f38ba8>Failed to import profile from file.</color>"
                 ),
                 new GuiSection(
                         "<color:#5c5f77>Select a Profile</color>",
@@ -275,7 +292,9 @@ public record ProfileConfig(
                 true,
                 new EconomySection(true, List.of("vault", "playerpoints")),
                 new SkillSection(true, true, true),
-                new StatisticsSection(true, List.of("MOB_KILLS", "DEATHS", "JUMP"))
+                new StatisticsSection(true, List.of("MOB_KILLS", "DEATHS", "JUMP")),
+                16,
+                "[a-zA-Z0-9_-]+"
         );
     }
 
@@ -407,7 +426,18 @@ public record ProfileConfig(
             String warmupCancelledDamage,
             String warmupCancelledGeneric,
             String debugEnabled,
-            String debugDisabled
+            String debugDisabled,
+            String renameSuccess,
+            String renameFail,
+            String cannotRenameDefault,
+            String adminRenameSuccess,
+            String adminRenameFail,
+            String adminAlertRename,
+            String profileNameTooLong,
+            String profileNameInvalidChars,
+            String exportSuccess,
+            String importSuccess,
+            String importFail
     ) implements ConfigSection {
     }
 

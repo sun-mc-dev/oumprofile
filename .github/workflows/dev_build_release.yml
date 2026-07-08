@@ -1,0 +1,62 @@
+name: Dev Build Release
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout OumProfile
+        uses: actions/checkout@v4
+
+      - name: Checkout OumLib
+        uses: actions/checkout@v4
+        with:
+          repository: sun-mc-dev/oumlib
+          path: oumlib
+          ref: dev
+          token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build and Install OumLib
+        run: mvn clean install -DskipTests -f oumlib/pom.xml
+
+      - name: Build OumProfile
+        run: |
+          mvn clean package -DskipTests
+          cp target/oumprofile-*.jar target/OumProfile-dev.jar
+
+      - name: Delete Old Release
+        run: |
+          if gh release view dev-build >/dev/null 2>&1; then
+            gh release delete dev-build --cleanup-tag --yes
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-create Tag
+        run: |
+          git tag -d dev-build || true
+          git tag dev-build
+          git push origin dev-build
+
+      - name: Publish Dev-Build Release
+        run: |
+          gh release create dev-build target/OumProfile-dev.jar --title "Development Build" --notes "This is an automated development build of the main branch." --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

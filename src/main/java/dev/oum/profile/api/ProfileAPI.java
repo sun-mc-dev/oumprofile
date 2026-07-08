@@ -258,4 +258,16 @@ public final class ProfileAPI {
         Long pt = data.state().playtimeSeconds();
         return pt != null ? pt : 0L;
     }
+
+    /**
+     * Renames a profile for a player.
+     *
+     * @param player  The player.
+     * @param oldName The current profile name.
+     * @param newName The new profile name.
+     * @return True if rename succeeded, false otherwise.
+     */
+    public static boolean renameProfile(@NonNull Player player, @NonNull String oldName, @NonNull String newName) {
+        return manager().renameProfile(player, oldName, newName);
+    }
 }

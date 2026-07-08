@@ -12,9 +12,15 @@ public final class ProfileData {
     private double balance;
     private String primaryGroup;
     private String groupsJson;
+    private boolean active;
 
     public ProfileData(@NonNull String name, long createdAt, long lastUsed, @NonNull PlayerState state,
                        double balance, @Nullable String primaryGroup, @Nullable String groupsJson) {
+        this(name, createdAt, lastUsed, state, balance, primaryGroup, groupsJson, false);
+    }
+
+    public ProfileData(@NonNull String name, long createdAt, long lastUsed, @NonNull PlayerState state,
+                       double balance, @Nullable String primaryGroup, @Nullable String groupsJson, boolean active) {
         this.name = name;
         this.createdAt = createdAt;
         this.lastUsed = lastUsed;
@@ -22,11 +28,12 @@ public final class ProfileData {
         this.balance = balance;
         this.primaryGroup = primaryGroup;
         this.groupsJson = groupsJson;
+        this.active = active;
     }
 
     public static @NonNull ProfileData fresh(@NonNull String name) {
         long now = System.currentTimeMillis();
-        return new ProfileData(name, now, now, PlayerState.fresh(), 0.0, "default", "[\"default\"]");
+        return new ProfileData(name, now, now, PlayerState.fresh(), 0.0, "default", "[\"default\"]", false);
     }
 
     public @NonNull String name() {
@@ -57,6 +64,10 @@ public final class ProfileData {
         return groupsJson;
     }
 
+    public boolean active() {
+        return active;
+    }
+
     public void setLastUsed(long lastUsed) {
         this.lastUsed = lastUsed;
     }
@@ -75,5 +86,9 @@ public final class ProfileData {
 
     public void setGroupsJson(@Nullable String groupsJson) {
         this.groupsJson = groupsJson;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 }

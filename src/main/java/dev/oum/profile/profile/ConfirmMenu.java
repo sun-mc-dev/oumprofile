@@ -1,9 +1,9 @@
 package dev.oum.profile.profile;
 
+import dev.oum.oumlib.bridge.item.ItemBridge;
 import dev.oum.oumlib.inventory.ChestMenu;
 import dev.oum.oumlib.inventory.ItemBuilder;
 import dev.oum.oumlib.scheduler.Scheduler;
-import dev.oum.oumlib.bridge.item.ItemBridge;
 import dev.oum.profile.config.ProfileConfig.ConfirmGuiSection;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -25,6 +25,14 @@ public final class ConfirmMenu {
         this.targetName = targetName;
         this.onConfirm = onConfirm;
         this.onDeny = onDeny;
+    }
+
+    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
+        if (input.startsWith("head:") || input.startsWith("skull:")) {
+            String texture = input.substring(input.indexOf(':') + 1);
+            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
+        }
+        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
     }
 
     public void open(@NonNull Player player) {
@@ -90,13 +98,5 @@ public final class ConfirmMenu {
         });
 
         builder.build().open(player);
-    }
-
-    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
-        if (input.startsWith("head:") || input.startsWith("skull:")) {
-            String texture = input.substring(input.indexOf(':') + 1);
-            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
-        }
-        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
     }
 }
