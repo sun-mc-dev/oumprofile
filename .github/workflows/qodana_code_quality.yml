@@ -27,7 +27,6 @@ jobs:
       - name: 'Qodana Scan'
         uses: JetBrains/qodana-action@v2026.1
         with:
-          linter: jetbrains/qodana-jvm-community
           pr-mode: false
           use-caches: true
           post-pr-comment: true
