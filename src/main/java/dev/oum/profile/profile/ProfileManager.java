@@ -3,15 +3,16 @@ package dev.oum.profile.profile;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import dev.oum.oumlib.OumLib;
+import dev.oum.oumlib.bridge.combat.CombatBridge;
 import dev.oum.oumlib.bridge.economy.EconomyBridge;
 import dev.oum.oumlib.bridge.permission.PermissionBridge;
-import dev.oum.oumlib.config.ConfigManager;
+import dev.oum.oumlib.cooldown.CooldownFormatter;
+import dev.oum.oumlib.cooldown.CooldownManager;
 import dev.oum.oumlib.effect.Sounds;
 import dev.oum.oumlib.scheduler.Promise;
 import dev.oum.oumlib.scheduler.Scheduler;
 import dev.oum.oumlib.scheduler.TaskHandle;
 import dev.oum.oumlib.text.Text;
-import dev.oum.oumlib.util.Cooldown;
 import dev.oum.profile.ProfilePlaceholders;
 import dev.oum.profile.api.event.*;
 import dev.oum.profile.command.Permissions;
@@ -19,6 +20,7 @@ import dev.oum.profile.config.ProfileConfig;
 import dev.oum.profile.config.ProfileStorage;
 import dev.oum.profile.model.PlayerState;
 import dev.oum.profile.model.ProfileData;
+import net.kyori.adventure.audience.Audience;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.jspecify.annotations.NonNull;
@@ -26,8 +28,9 @@ import org.jspecify.annotations.Nullable;
 
 import java.lang.reflect.Type;
 import java.time.Duration;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -37,34 +40,78 @@ public final class ProfileManager {
     private static final Type STRING_LIST = new TypeToken<List<String>>() {
     }.getType();
 
-    private final ConfigManager<ProfileConfig> configManager;
+    private final ProfileConfig config;
     private final ProfileStorage storage;
     private final Map<UUID, Map<String, ProfileData>> cache = new ConcurrentHashMap<>();
     private final Map<UUID, String> active = new ConcurrentHashMap<>();
     private final Map<UUID, TaskHandle> warmups = new ConcurrentHashMap<>();
     private final Set<UUID> mutedAlerts = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Long> sessionStarts = new ConcurrentHashMap<>();
-    private Cooldown combatCooldown;
-    private Cooldown switchCooldown;
+    private final CooldownManager<UUID> switchCooldown;
+    private TaskHandle autoSaveTask;
 
-    public ProfileManager(@NonNull ConfigManager<ProfileConfig> configManager, @NonNull ProfileStorage storage) {
-        this.configManager = configManager;
+    public ProfileManager(@NonNull ProfileConfig config, @NonNull ProfileStorage storage) {
+        this.config = config;
         this.storage = storage;
-        this.combatCooldown = Cooldown.of(Duration.ofSeconds(configManager.get().switching().combatTagDuration()));
-        this.switchCooldown = Cooldown.of(Duration.ofSeconds(configManager.get().switching().switchCooldownSeconds()));
-        configManager.onReload(newConfig -> {
-            this.combatCooldown = Cooldown.of(Duration.ofSeconds(newConfig.switching().combatTagDuration()));
-            this.switchCooldown = Cooldown.of(Duration.ofSeconds(newConfig.switching().switchCooldownSeconds()));
-        });
+        this.switchCooldown = CooldownManager.<UUID>create()
+                .defaultFormatter(CooldownFormatter.COMPACT)
+                .bypassPredicate(uuid -> {
+                    Player p = Bukkit.getPlayer(uuid);
+                    return p != null && p.hasPermission(Permissions.BYPASS_COOLDOWN);
+                });
+        startAutoSave();
+    }
+
+    private static String getActiveName(@NonNull Map<String, ProfileData> map, String defaultName) {
+        String activeName = null;
+        for (ProfileData data : map.values()) {
+            if (data.active()) {
+                activeName = data.name();
+                break;
+            }
+        }
+        if (activeName == null) {
+            long maxLastUsed = -1;
+            for (ProfileData data : map.values()) {
+                if (data.lastUsed() > maxLastUsed) {
+                    maxLastUsed = data.lastUsed();
+                    activeName = data.name();
+                }
+            }
+        }
+        if (activeName == null) {
+            activeName = defaultName;
+        }
+        return activeName;
+    }
+
+    public void startAutoSave() {
+        if (autoSaveTask != null) {
+            autoSaveTask.cancel();
+            autoSaveTask = null;
+        }
+        var cfg = config.main().autoSave();
+        if (cfg != null && cfg.enabled() && cfg.intervalMinutes() > 0) {
+            long seconds = cfg.intervalMinutes() * 60L;
+            this.autoSaveTask = Scheduler.runRepeating(
+                    Duration.ofSeconds(seconds),
+                    Duration.ofSeconds(seconds),
+                    () -> {
+                        OumLib.logDebug("Running scheduled auto-save for active online player profiles.");
+                        saveAllOnline();
+                    }
+            );
+            OumLib.logDebug("Started auto-save task every " + cfg.intervalMinutes() + " minutes.");
+        }
     }
 
     public @NonNull NameValidation validateProfileName(@NonNull String name) {
         if (name.isEmpty() || name.contains(" ")) return NameValidation.EMPTY;
 
-        int maxLen = configManager.get().profileNameMaxLength();
+        int maxLen = config.main().profileNameMaxLength();
         if (maxLen > 0 && name.length() > maxLen) return NameValidation.TOO_LONG;
 
-        String regex = configManager.get().profileNameRegex();
+        String regex = config.main().profileNameRegex();
         if (regex != null && !regex.isEmpty()) {
             try {
                 if (!Pattern.matches(regex, name)) return NameValidation.INVALID_CHARS;
@@ -73,6 +120,40 @@ public final class ProfileManager {
         }
 
         return NameValidation.VALID;
+    }
+
+    public boolean checkNameValidation(@NonNull Audience audience, @NonNull String name) {
+        NameValidation validation = validateProfileName(name);
+        var msg = config.messages();
+        switch (validation) {
+            case EMPTY -> {
+                Text.send(audience, msg.invalidProfileName());
+                return false;
+            }
+            case TOO_LONG -> {
+                Text.send(audience, msg.profileNameTooLong(), "max",
+                        String.valueOf(config.main().profileNameMaxLength()));
+                return false;
+            }
+            case INVALID_CHARS -> {
+                Text.send(audience, msg.profileNameInvalidChars());
+                return false;
+            }
+            case VALID -> {
+                return true;
+            }
+        }
+        return true;
+    }
+
+    public @NonNull DateTimeFormatter dateFormatter() {
+        try {
+            return DateTimeFormatter.ofPattern(config.main().dateFormat())
+                    .withZone(ZoneId.systemDefault());
+        } catch (IllegalArgumentException e) {
+            return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                    .withZone(ZoneId.systemDefault());
+        }
     }
 
     public boolean toggleAlerts(@NonNull UUID uuid) {
@@ -90,7 +171,7 @@ public final class ProfileManager {
     }
 
     public void sendAlert(@NonNull String alertMessage, Object... placeholders) {
-        if (!configManager.get().adminAlertsEnabled()) return;
+        if (!config.main().adminAlertsEnabled()) return;
         for (Player online : Bukkit.getOnlinePlayers()) {
             if (Permissions.ALERTS.has(online) && wantsAlerts(online.getUniqueId())) {
                 Text.send(online, alertMessage, placeholders);
@@ -98,8 +179,8 @@ public final class ProfileManager {
         }
     }
 
-    public @NonNull ConfigManager<ProfileConfig> configManager() {
-        return configManager;
+    public @NonNull ProfileConfig config() {
+        return config;
     }
 
     public @NonNull ProfileStorage storage() {
@@ -112,8 +193,8 @@ public final class ProfileManager {
         return (System.currentTimeMillis() - start) / 1000;
     }
 
-    public @NonNull Cooldown combatCooldown() {
-        return combatCooldown;
+    public @NonNull CooldownManager<UUID> switchCooldown() {
+        return switchCooldown;
     }
 
     public void loadPlayer(@NonNull Player player) {
@@ -124,7 +205,7 @@ public final class ProfileManager {
             for (ProfileData data : list) {
                 map.put(data.name(), data);
             }
-            String defaultName = configManager.get().defaultProfileName();
+            String defaultName = config.main().defaultProfileName();
             if (map.isEmpty()) {
                 OumLib.logDebug("No profiles found for " + player.getName() + ". Creating default profile: " + defaultName);
                 ProfileData def = ProfileData.fresh(defaultName);
@@ -133,25 +214,7 @@ public final class ProfileManager {
                 storage.save(uuid, def);
             }
             cache.put(uuid, map);
-            String activeName = null;
-            for (ProfileData data : map.values()) {
-                if (data.active()) {
-                    activeName = data.name();
-                    break;
-                }
-            }
-            if (activeName == null) {
-                long maxLastUsed = -1;
-                for (ProfileData data : map.values()) {
-                    if (data.lastUsed() > maxLastUsed) {
-                        maxLastUsed = data.lastUsed();
-                        activeName = data.name();
-                    }
-                }
-            }
-            if (activeName == null) {
-                activeName = defaultName;
-            }
+            String activeName = getActiveName(map, defaultName);
 
             active.put(uuid, activeName);
             OumLib.logDebug("Loaded " + map.size() + " profiles for " + player.getName() + ". Active profile: " + activeName);
@@ -163,7 +226,7 @@ public final class ProfileManager {
 
             ProfileData toApply = map.get(activeName);
             player.closeInventory();
-            toApply.state().apply(player, configManager.get().switching().saveLocation(), configManager.get());
+            toApply.state().apply(player, config.main().switching().saveLocation(), config.main());
             applyEconomies(player, toApply);
             sessionStarts.put(uuid, System.currentTimeMillis());
 
@@ -207,7 +270,7 @@ public final class ProfileManager {
         if (data == null) return;
 
         player.closeInventory();
-        captureLiveState(player, data, configManager.get().switching().saveLocation());
+        captureLiveState(player, data, config.main().switching().saveLocation());
         storage.save(uuid, data);
         OumLib.logDebug("Saved active profile '" + activeName + "' data for player " + player.getName());
 
@@ -217,13 +280,8 @@ public final class ProfileManager {
         sessionStarts.remove(uuid);
     }
 
-    public void shutdown() {
-        OumLib.logDebug("Shutting down ProfileManager. Saving all online players' profile states.");
-        for (UUID uuid : warmups.keySet()) {
-            cancelWarmup(uuid);
-        }
-
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+    public @NonNull Promise<Void> saveAllOnline() {
+        List<Promise<Void>> promises = new ArrayList<>();
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID uuid = player.getUniqueId();
             Map<String, ProfileData> map = cache.get(uuid);
@@ -232,23 +290,46 @@ public final class ProfileManager {
                 ProfileData data = map.get(activeName);
                 if (data != null) {
                     try {
-                        captureLiveState(player, data, configManager.get().switching().saveLocation());
-                        futures.add(storage.save(uuid, data).toCompletableFuture());
-                        OumLib.logDebug("Queued save for active profile '" + activeName + "' for player " + player.getName() + " on shutdown.");
+                        captureLiveState(player, data, config.main().switching().saveLocation());
+                        promises.add(storage.save(uuid, data));
                     } catch (Exception e) {
-                        OumLib.logError("Failed to capture state for player " + player.getName() + " on shutdown", e);
+                        OumLib.logError("Failed to capture state for player " + player.getName() + " during save", e);
                     }
                 }
             }
         }
+        if (promises.isEmpty()) return Promise.empty();
+        return Promise.allVoid(promises);
+    }
 
-        if (!futures.isEmpty()) {
-            try {
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                OumLib.logDebug("All " + futures.size() + " profile saves completed on shutdown.");
-            } catch (Exception e) {
-                OumLib.logError("Error during batch profile save on shutdown", e);
-            }
+    public @NonNull Promise<Integer> pruneInactiveProfiles(int days) {
+        if (days <= 0) {
+            return Promise.completed(0);
+        }
+        long cutoffMillis = System.currentTimeMillis() - (days * 86_400_000L);
+        Set<UUID> onlineUuids = new HashSet<>();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            onlineUuids.add(p.getUniqueId());
+        }
+        OumLib.logDebug("Pruning inactive profiles older than " + days + " days (cutoff: " + cutoffMillis + ")");
+        return storage.pruneInactive(cutoffMillis, onlineUuids);
+    }
+
+    public void shutdown() {
+        if (autoSaveTask != null) {
+            autoSaveTask.cancel();
+            autoSaveTask = null;
+        }
+        OumLib.logDebug("Shutting down ProfileManager. Saving all online players' profile states.");
+        for (UUID uuid : warmups.keySet()) {
+            cancelWarmup(uuid);
+        }
+
+        try {
+            saveAllOnline().join();
+            OumLib.logDebug("All profile saves completed on shutdown.");
+        } catch (Exception e) {
+            OumLib.logError("Error during batch profile save on shutdown", e);
         }
 
         cache.clear();
@@ -269,7 +350,7 @@ public final class ProfileManager {
         long totalPlaytime = prevPlaytime + elapsed;
         sessionStarts.put(uuid, System.currentTimeMillis());
 
-        data.setState(PlayerState.capture(player, saveLocation, configManager.get(), totalPlaytime));
+        data.setState(PlayerState.capture(player, saveLocation, config.main(), totalPlaytime));
         data.setBalance(EconomyBridge.balance(player));
         data.setLastUsed(System.currentTimeMillis());
 
@@ -304,7 +385,7 @@ public final class ProfileManager {
     public int getMaxProfiles(@NonNull Player player) {
         if (player.hasPermission(Permissions.MAX_UNLIMITED)) return Integer.MAX_VALUE;
         int max = 1;
-        List<Integer> tiers = configManager.get().limitTiers();
+        List<Integer> tiers = config.main().limitTiers();
         if (tiers != null) {
             for (int tier : tiers) {
                 if (player.hasPermission(Permissions.MAX_TIER_PREFIX + tier)) max = Math.max(max, tier);
@@ -344,7 +425,7 @@ public final class ProfileManager {
         map.put(name, data);
         storage.save(uuid, data);
         OumLib.logDebug("Profile '" + name + "' created and saved for player " + player.getName());
-        sendAlert(configManager.get().messages().adminAlertCreate(), "player", player.getName(), "name", name);
+        sendAlert(config.messages().adminAlertCreate(), "player", player.getName(), "name", name);
         return true;
     }
 
@@ -360,7 +441,7 @@ public final class ProfileManager {
             OumLib.logDebug("Profile deletion failed: Cannot delete active profile '" + name + "' for " + player.getName());
             return false;
         }
-        if (name.equalsIgnoreCase(configManager.get().defaultProfileName())) {
+        if (name.equalsIgnoreCase(config.main().defaultProfileName())) {
             OumLib.logDebug("Profile deletion failed: Cannot delete default profile '" + name + "' for " + player.getName());
             return false;
         }
@@ -379,7 +460,7 @@ public final class ProfileManager {
         map.remove(name);
         storage.delete(uuid, name);
         OumLib.logDebug("Profile '" + name + "' deleted successfully for player " + player.getName());
-        sendAlert(configManager.get().messages().adminAlertDelete(), "player", player.getName(), "name", name);
+        sendAlert(config.messages().adminAlertDelete(), "player", player.getName(), "name", name);
         return true;
     }
 
@@ -402,7 +483,7 @@ public final class ProfileManager {
             OumLib.logDebug("Profile rename failed: Profile '" + newName + "' already exists for " + player.getName());
             return false;
         }
-        if (oldName.equalsIgnoreCase(configManager.get().defaultProfileName())) {
+        if (oldName.equalsIgnoreCase(config.main().defaultProfileName())) {
             OumLib.logDebug("Profile rename failed: Cannot rename default profile '" + oldName + "' for " + player.getName());
             return false;
         }
@@ -423,7 +504,7 @@ public final class ProfileManager {
 
         storage.rename(uuid, oldName, newName);
         OumLib.logDebug("Profile '" + oldName + "' renamed to '" + newName + "' for player " + player.getName());
-        sendAlert(configManager.get().messages().adminAlertRename(), "player", player.getName(), "old", oldName, "new", newName);
+        sendAlert(config.messages().adminAlertRename(), "player", player.getName(), "old", oldName, "new", newName);
         return true;
     }
 
@@ -433,21 +514,21 @@ public final class ProfileManager {
         OumLib.logDebug("Player " + player.getName() + " requested profile switch from '" + currentName + "' to '" + target + "'");
 
         if (!hasProfile(uuid, target)) {
-            Text.send(player, configManager.get().messages().profileNotFound(), "target", target);
+            Text.send(player, config.messages().profileNotFound(), "target", target);
             return;
         }
         if (target.equals(currentName)) {
-            Text.send(player, configManager.get().messages().profileAlreadyActive());
+            Text.send(player, config.messages().profileAlreadyActive());
             return;
         }
-        if (switchCooldown.isOnCooldown(uuid) && !player.hasPermission(Permissions.BYPASS_COOLDOWN)) {
-            String seconds = String.format("%.1f", switchCooldown.remainingSecondsDouble(uuid));
-            Text.send(player, configManager.get().messages().switchCooldown(), "seconds", seconds);
+        if (switchCooldown.isOnCooldown(uuid)) {
+            String remaining = switchCooldown.formatRemaining(uuid);
+            Text.send(player, config.messages().switchCooldown(), "seconds", remaining);
             return;
         }
-        if (configManager.get().switching().cancelInCombat() && combatCooldown.isOnCooldown(uuid)
+        if (config.main().switching().cancelInCombat() && CombatBridge.isInCombat(player)
                 && !player.hasPermission(Permissions.BYPASS_COMBAT)) {
-            Text.send(player, configManager.get().messages().combatBlock());
+            Text.send(player, config.messages().combatBlock());
             return;
         }
 
@@ -459,17 +540,17 @@ public final class ProfileManager {
         }
 
         boolean bypassWarmup = player.hasPermission(Permissions.BYPASS_WARMUP);
-        if (!configManager.get().switching().warmupEnabled() || bypassWarmup) {
+        if (!config.main().switching().warmupEnabled() || bypassWarmup) {
             OumLib.logDebug("Bypassing warmup for player " + player.getName() + " (Warmup config disabled: "
-                    + !configManager.get().switching().warmupEnabled() + ", Permission bypass: " + bypassWarmup + ")");
+                    + !config.main().switching().warmupEnabled() + ", Permission bypass: " + bypassWarmup + ")");
             performSwitch(player, target);
             return;
         }
 
         cancelWarmup(uuid);
-        int seconds = configManager.get().switching().warmupSeconds();
+        int seconds = config.main().switching().warmupSeconds();
         OumLib.logDebug("Starting switch warmup of " + seconds + "s for player " + player.getName());
-        Text.send(player, configManager.get().messages().warmupStart(), "target", target, "seconds", String.valueOf(seconds));
+        Text.send(player, config.messages().warmupStart(), "target", target, "seconds", String.valueOf(seconds));
 
         final int[] remaining = {seconds};
         showWarmupTick(player, remaining[0], target);
@@ -516,7 +597,7 @@ public final class ProfileManager {
     }
 
     private void showWarmupTick(@NonNull Player player, int remaining, @NonNull String target) {
-        var cfg = configManager.get().switching();
+        var cfg = config.main().switching();
         if (cfg.warmupTitleEnabled() && cfg.warmupTitleText() != null) {
             String title = cfg.warmupTitleText()
                     .replace("<seconds>", String.valueOf(remaining))
@@ -537,7 +618,7 @@ public final class ProfileManager {
     }
 
     private void showWarmupComplete(@NonNull Player player) {
-        var cfg = configManager.get().switching();
+        var cfg = config.main().switching();
         if (cfg.warmupTitleEnabled()) {
             player.clearTitle();
         }
@@ -550,7 +631,7 @@ public final class ProfileManager {
     }
 
     private void showWarmupCancel(@NonNull Player player) {
-        var cfg = configManager.get().switching();
+        var cfg = config.main().switching();
         if (cfg.warmupTitleEnabled()) {
             player.clearTitle();
         }
@@ -582,12 +663,12 @@ public final class ProfileManager {
 
             player.closeInventory();
             OumLib.logDebug("Saving current live data for player " + player.getName() + " on profile " + currentName);
-            captureLiveState(player, current, configManager.get().switching().saveLocation());
+            captureLiveState(player, current, config.main().switching().saveLocation());
             current.setActive(false);
             storage.save(uuid, current);
 
             OumLib.logDebug("Applying profile '" + target + "' data state to player " + player.getName());
-            targetData.state().apply(player, configManager.get().switching().saveLocation(), configManager.get());
+            targetData.state().apply(player, config.main().switching().saveLocation(), config.main());
             targetData.setLastUsed(System.currentTimeMillis());
             targetData.setActive(true);
 
@@ -603,23 +684,23 @@ public final class ProfileManager {
             active.put(uuid, target);
             storage.save(uuid, targetData);
             storage.setActive(uuid, target);
-            switchCooldown.set(uuid);
+            switchCooldown.apply(uuid, Duration.ofSeconds(config.main().switching().switchCooldownSeconds()));
 
-            Text.send(player, configManager.get().messages().switchSuccess(), "target", target);
+            Text.send(player, config.messages().switchSuccess(), "target", target);
             OumLib.logDebug("Player " + player.getName() + " successfully switched to profile: " + target);
-            sendAlert(configManager.get().messages().adminAlertSwitch(), "player", player.getName(), "target", target);
+            sendAlert(config.messages().adminAlertSwitch(), "player", player.getName(), "target", target);
             Bukkit.getPluginManager().callEvent(new ProfilePostSwitchEvent(player, currentName, target));
         });
     }
 
     private void applyEconomies(@NonNull Player player, @NonNull ProfileData targetData) {
-        ProfileConfig config = configManager.get();
-        if (config.economy() != null && config.economy().enabled()) {
+        var cfg = config.main();
+        if (cfg.economy() != null && cfg.economy().enabled()) {
             Map<String, Double> savedCurrencies = targetData.state().currencies();
             if (savedCurrencies == null) {
                 savedCurrencies = new HashMap<>();
             }
-            for (String currency : config.economy().currencies()) {
+            for (String currency : cfg.economy().currencies()) {
                 try {
                     double currentBal = EconomyBridge.balance(currency, player);
                     double targetBal = savedCurrencies.getOrDefault(currency, 0.0);

@@ -24,6 +24,7 @@ Each player profile stores:
 * **Movement States**: Flight capabilities (allowFlight and isFlying state).
 * **Optional Features**: Coordinate location (if saveLocation is enabled), Vault balance, LuckPerms group, mcMMO skills,
   AuraSkills, JobsReborn jobs, custom multi-currencies, playtime tracking, and vanilla Minecraft statistics.
+* **Server Resilience**: Non-blocking periodic auto-save to protect against sudden crashes, plus administrative stale profile pruning (`/profile admin prune <days>`) to keep databases compact.
 
 ---
 
@@ -42,6 +43,7 @@ The plugin automatically integrates with the following if present on the server:
 * **mcMMO**: For per-profile skill level and experience synchronization.
 * **AuraSkills**: For per-profile skill level and experience synchronization.
 * **JobsReborn**: For per-profile job level and experience progression.
+* **CombatLogX / PvPManager / DeluxeCombat**: Automatic combat tag detection for profile switch blocking.
 * **PlaceholderAPI & MiniPlaceholders**: For displaying profile statistics in chats, scoreboards, and tablists.
 
 ---
@@ -96,6 +98,7 @@ The following placeholders are supported under the `oumprofile` namespace:
 | `/profile admin rename <player> <old> <new>`      | Renames a profile for the specified player.                  | OP (requires `profiles.admin`) |
 | `/profile admin export <player> <profile>`        | Exports a player's profile to a JSON file.                   | OP (requires `profiles.admin`) |
 | `/profile admin import <player> <file>`           | Imports a profile from a JSON file for a player.             | OP (requires `profiles.admin`) |
+| `/profile admin prune <days>`                     | Prunes all inactive profiles older than the given days.      | OP (requires `profiles.admin`) |
 | `/profile debug`                                  | Toggles debug logging in console.                            | OP (requires `profiles.admin`) |
 | `profiles.admin`                                  | Access to administrative commands and config reload.         | OP                             |
 | `profiles.create.*`                               | Permission to create profiles with any name.                 | OP                             |
@@ -110,40 +113,74 @@ The following placeholders are supported under the `oumprofile` namespace:
 
 ## Configuration Reference
 
-The `config.yml` file allows detailed configuration of storage backends, warmup checks, interface layouts, and messages:
+OumProfile is designed with a clean, modular configuration architecture split into 3 dedicated files:
+- **`config.yml`**: Core plugin settings, database persistence, profile switching mechanics, auto-save, and third-party integrations.
+- **`menus.yml`**: Inventory GUI layouts, custom head textures, button patterns, items, lores, and confirmation dialogs.
+- **`messages.yml`**: Localization, chat messages, alerts, countdown titles, and error notifications with full MiniMessage support.
+
+All configuration files support **live auto-reloading** without requiring a server restart.
+
+### 1. `config.yml` (Main Configuration)
 
 ```yaml
 # Enable detailed debug logging in console
 debug: false
 
-# Profile switching settings
-switching:
-  warmupEnabled: true
-  warmupSeconds: 5
-  cancelOnMove: true
-  cancelOnDamage: true
-  cancelInCombat: true
-  combatTagDuration: 10
-  switchCooldownSeconds: 10
-  saveLocation: false
-  warmupTitleEnabled: true
-  warmupTitleText: "<color:#74c7ec>Switching Profile...</color>"
-  warmupSubtitleText: "<color:#9399b2>Do not move for <color:#f9e2af><seconds>s</color></color>"
-  warmupSoundEnabled: true
-  warmupSoundKey: "block.note_block.hat"
-  warmupCompleteSoundKey: "entity.player.levelup"
-  warmupCancelSoundKey: "entity.villager.no"
+# Name of the default profile created on first join
+default-profile-name: "default"
+
+# Global date format pattern
+date-format: "yyyy-MM-dd HH:mm"
+
+# Enable administrative alerts when players switch, create, or delete profiles
+admin-alerts-enabled: true
+
+# Maximum character length for profile names
+profile-name-max-length: 16
+
+# Regex pattern for valid profile names
+profile-name-regex: "[a-zA-Z0-9_-]+"
+
+# Max profile limits based on profiles.max.<tier> permission nodes
+limit-tiers:
+  - 1
+  - 3
+  - 5
+  - 10
+
+# Periodic background auto-save settings for active player profiles
+auto-save:
+  enabled: true
+  interval-minutes: 5
 
 # Database storage settings (SQLite/MySQL)
 storage:
-  type: "sqlite"
+  type: "sqlite" # 'sqlite' or 'mysql'
   host: "localhost"
   port: 3306
   database: "oumprofile"
   username: "root"
   password: ""
 
-# LuckPerms group integration
+# Profile switching mechanics, warmups, combat checks, and sounds
+switching:
+  warmup-enabled: true
+  warmup-seconds: 5
+  cancel-on-move: true
+  cancel-on-damage: true
+  cancel-in-combat: true
+  combat-tag-duration: 10
+  switch-cooldown-seconds: 10
+  save-location: false
+  warmup-title-enabled: true
+  warmup-title-text: "<color:#74c7ec>Switching Profile...</color>"
+  warmup-subtitle-text: "<color:#9399b2>Do not move for <color:#f9e2af><seconds>s</color></color>"
+  warmup-sound-enabled: true
+  warmup-sound-key: "block.note_block.hat"
+  warmup-complete-sound-key: "entity.player.levelup"
+  warmup-cancel-sound-key: "entity.villager.no"
+
+# LuckPerms group synchronization
 luckperms:
   enabled: true
 
@@ -156,9 +193,9 @@ economy:
 
 # Skill and Job synchronization settings
 skills:
-  mcmmoEnabled: true
-  auraSkillsEnabled: true
-  jobsEnabled: true
+  mcmmo-enabled: true
+  aura-skills-enabled: true
+  jobs-enabled: true
 
 # Vanilla statistics synchronization settings
 statistics:
@@ -167,68 +204,11 @@ statistics:
     - "MOB_KILLS"
     - "DEATHS"
     - "JUMP"
+```
 
-# Custom plugin messages (MiniMessage tags allowed)
-messages:
-  profileNotFound: "<color:#f38ba8>Profile <color:#fab387>'<target>'</color> does not exist.</color>"
-  profileAlreadyActive: "<color:#f38ba8>You are already using that profile.</color>"
-  combatBlock: "<color:#f38ba8>You cannot switch profiles while in combat.</color>"
-  warmupStart: "<color:#74c7ec>Switching to <color:#cba6f7><target></color> in <color:#fab387><seconds>s</color>...</color>"
-  switchSuccess: "<color:#a6e3a1>Switched to profile <color:#cba6f7><target></color>.</color>"
-  noPermission: "<color:#f38ba8>You don't have permission to create a profile named <color:#fab387>'<name>'</color>.</color>"
-  createFail: "<color:#f38ba8>Could not create profile <color:#fab387>'<name>'</color> (limit reached or name exists).</color>"
-  createSuccess: "<color:#a6e3a1>Created profile <color:#cba6f7><name></color>.</color>"
-  deleteFail: "<color:#f38ba8>Could not delete profile <color:#fab387>'<name>'</color> (active, last remaining, or not found).</color>"
-  deleteSuccess: "<color:#a6e3a1>Deleted profile <color:#cba6f7><name></color>.</color>"
-  help: "<color:#b4befe>OumProfile <color:#585b70>»</color> <color:#9399b2>/profile <list | current | create | switch | delete | reload></color></color>"
-  listHeader: "<color:#74c7ec>Your profiles (<color:#fab387><count></color>):</color>"
-  listItemActive: "<color:#a6e3a1>● <color:#cdd6f4><name></color> <color:#585b70>—</color> <color:#9399b2>Active</color></color>"
-  listItemInactive: "<color:#9399b2>○ <color:#a6adc8><name></color> <color:#585b70>—</color> <color:#6c7086>Last used <date></color></color>"
-  currentProfile: "<color:#b4befe>Active Profile: <color:#cba6f7><name></color></color>"
-  playerOnly: "<color:#f38ba8>This command must be run as a player.</color>"
-  noProfiles: "<color:#9399b2>You have no profiles.</color>"
-  noActiveProfile: "<color:#f38ba8>No active profile found.</color>"
-  reloadSuccess: "<color:#a6e3a1>Configuration reloaded successfully.</color>"
-  switchCooldown: "<color:#f38ba8>Please wait <color:#fab387><seconds>s</color> before switching profiles again.</color>"
-  maxProfilesReached: "<color:#f38ba8>You have reached your maximum profile slot limit.</color>"
-  cannotDeleteActive: "<color:#f38ba8>You cannot delete your active profile.</color>"
-  cannotDeleteDefault: "<color:#f38ba8>You cannot delete your default profile.</color>"
-  invalidProfileName: "<color:#f38ba8>Profile name must not be empty or contain spaces.</color>"
-  profileCreationCancelled: "<color:#f38ba8>Profile creation cancelled.</color>"
-  profileCreationTimedOut: "<color:#f38ba8>Profile creation timed out.</color>"
-  playerNotFound: "<color:#f38ba8>Player not found.</color>"
-  adminOpenSuccess: "<color:#a6e3a1>Opened profile menu for <color:#cba6f7><target></color>.</color>"
-  adminListHeader: "<color:#74c7ec>Profiles for <color:#cba6f7><target></color> (<color:#fab387><count></color>):</color>"
-  adminCreateSuccess: "<color:#a6e3a1>Successfully created profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
-  adminCreateFail: "<color:#f38ba8>Failed to create profile (already exists or limit reached).</color>"
-  adminSwitchSuccess: "<color:#a6e3a1>Forced <color:#cba6f7><target></color> to switch to profile <color:#fab387><name></color>.</color>"
-  adminSwitchFailNoProfile: "<color:#f38ba8>Player does not have a profile named <color:#fab387>'<name>'</color>.</color>"
-  adminDeleteSuccess: "<color:#a6e3a1>Successfully deleted profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
-  adminDeleteFail: "<color:#f38ba8>Failed to delete profile (active, last remaining, or not found).</color>"
-  adminAlertSwitch: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> switched to profile <color:#cba6f7><b><target></b></color></color>"
-  adminAlertCreate: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> created profile <color:#cba6f7><b><name></b></color></color>"
-  adminAlertDelete: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> deleted profile <color:#cba6f7><b><name></b></color></color>"
-  alertsEnabled: "<color:#a6e3a1>Profile alerts enabled.</color>"
-  alertsDisabled: "<color:#f38ba8>Profile alerts disabled.</color>"
-  warmupCancelledMove: "<color:#f38ba8>Profile switch cancelled because you moved.</color>"
-  warmupCancelledDamage: "<color:#f38ba8>Profile switch cancelled because you took damage.</color>"
-  warmupCancelledGeneric: "<color:#f38ba8>Profile switch cancelled.</color>"
-  debugEnabled: "<color:#a6e3a1>Debug mode enabled.</color>"
-  debugDisabled: "<color:#f38ba8>Debug mode disabled.</color>"
-  renameSuccess: "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color>.</color>"
-  renameFail: "<color:#f38ba8>Could not rename profile <color:#fab387>'<old>'</color>.</color>"
-  cannotRenameDefault: "<color:#f38ba8>You cannot rename the default profile.</color>"
-  adminRenameSuccess: "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color> for <color:#cba6f7><target></color>.</color>"
-  adminRenameFail: "<color:#f38ba8>Failed to rename profile for player.</color>"
-  adminAlertRename: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> renamed profile <color:#cba6f7><b><old></b></color> to <color:#cba6f7><b><new></b></color></color>"
-  profileNameTooLong: "<color:#f38ba8>Profile name must be at most <color:#fab387><max></color> characters.</color>"
-  profileNameInvalidChars: "<color:#f38ba8>Profile name contains invalid characters. Only letters, numbers, hyphens and underscores are allowed.</color>"
-  exportSuccess: "<color:#a6e3a1>Exported profile <color:#fab387><name></color> to file.</color>"
-  importSuccess: "<color:#a6e3a1>Imported profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
-  importFail: "<color:#f38ba8>Failed to import profile from file.</color>"
+### 2. `menus.yml` (GUI Layouts & Menus)
 
-
-# GUI menus and chat input settings
+```yaml
 gui:
   title: "<color:#5c5f77>Select a Profile</color>"
   rows: 3
@@ -236,25 +216,27 @@ gui:
     - "#########"
     - "  PPPPP  "
     - "####C####"
-  createButtonMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNWZmMzE0MzFkNjQ1ODdmZjZlZjk4YzA2NzU4MTA2ODFmOGMxM2JmOTZmNTFkOWNiMDdlZDc4NTJiMmZmZDEifX19"
-  createButtonMaterialLimitReached: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvODE5OWI1ZWUzMjBlNzk5N2Q5MWJiNWY4NjY1ZjNkMzJhZTQ5MjBlMDNjNmIzZDliN2VlY2E2OTcxMTk5OTcifX19"
-  createButtonName: "<color:#a6e3a1><b>Create New Profile</b></color>"
-  createButtonNameLimitReached: "<color:#f38ba8><b>Profile Limit Reached</b></color>"
-  createButtonLore:
+  profile-slot-char: "P"
+  create-button-slot-char: "C"
+  create-button-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNWZmMzE0MzFkNjQ1ODdmZjZlZjk4YzA2NzU4MTA2ODFmOGMxM2JmOTZmNTFkOWNiMDdlZDc4NTJiMmZmZDEifX19"
+  create-button-material-limit-reached: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvODE5OWI1ZWUzMjBlNzk5N2Q5MWJiNWY4NjY1ZjNkMzJhZTQ5MjBlMDNjNmIzZDliN2VlY2E2OTcxMTk5OTcifX19"
+  create-button-name: "<color:#a6e3a1><b>Create New Profile</b></color>"
+  create-button-name-limit-reached: "<color:#f38ba8><b>Profile Limit Reached</b></color>"
+  create-button-lore:
     - "<color:#9399b2>Slots: <color:#f9e2af><slots_current></color> / <color:#9399b2><slots_max></color>"
     - ""
     - "<color:#a6e3a1>Click to start profile creation</color>"
-  createButtonLoreLimitReached:
+  create-button-lore-limit-reached:
     - "<color:#9399b2>Slots: <color:#f9e2af><slots_current></color> / <color:#9399b2><slots_max></color>"
     - ""
     - "<color:#f38ba8>Purchase more slots on our store</color>"
-  activeProfileMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZjdmYWFlMWQxOTgzNmJkMDc4NTQyNmU0ZmQyOGFhNjNhMzgxZTllNzE0OTU1OWVlNmIyYTUwOTk5NWJiY2ZkMiJ9fX0="
-  inactiveProfileMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZDVjNmRjMmJiZjUxYzM2Y2ZjNzcxNDU4NWE2YTU2ODNlZjJiMTRkNDdkOGZmNzE0NjU0YTg5M2Y1ZGE2MjIifX19"
-  emptySlotMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDZiYTYzMzQ0ZjQ5ZGQxYzRmNTQ4OGU5MjZiZjNkOWUyYjI5OTE2YTZjNTBkNjEwYmI0MGE1MjczZGM4YzgyIn19fQ=="
-  activeProfileName: "<color:#a6e3a1><b><name></b></color> <color:#9399b2>(Active)</color>"
-  inactiveProfileName: "<color:#cba6f7><b><name></b></color>"
-  emptySlotName: "<color:#585b70>Empty Slot</color>"
-  activeProfileLore:
+  active-profile-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZjdmYWFlMWQxOTgzNmJkMDc4NTQyNmU0ZmQyOGFhNjNhMzgxZTllNzE0OTU1OWVlNmIyYTUwOTk5NWJiY2ZkMiJ9fX0="
+  inactive-profile-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZDVjNmRjMmJiZjUxYzM2Y2ZjNzcxNDU4NWE2YTU2ODNlZjJiMTRkNDdkOGZmNzE0NjU0YTg5M2Y1ZGE2MjIifX19"
+  empty-slot-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDZiYTYzMzQ0ZjQ5ZGQxYzRmNTQ4OGU5MjZiZjNkOWUyYjI5OTE2YTZjNTBkNjEwYmI0MGE1MjczZGM4YzgyIn19fQ=="
+  active-profile-name: "<color:#a6e3a1><b><name></b></color> <color:#9399b2>(Active)</color>"
+  inactive-profile-name: "<color:#cba6f7><b><name></b></color>"
+  empty-slot-name: "<color:#585b70>Empty Slot</color>"
+  active-profile-lore:
     - "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>"
     - "<color:#9399b2>Created: <color:#cdd6f4><created></color></color>"
     - "<color:#9399b2>Last Used: <color:#cdd6f4><last_used></color></color>"
@@ -264,7 +246,7 @@ gui:
     - "<color:#9399b2>Jobs: <color:#f9e2af><jobs></color></color>"
     - "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>"
     - "<color:#a6e3a1>Currently Active</color>"
-  inactiveProfileLore:
+  inactive-profile-lore:
     - "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>"
     - "<color:#9399b2>Created: <color:#cdd6f4><created></color></color>"
     - "<color:#9399b2>Last Used: <color:#cdd6f4><last_used></color></color>"
@@ -275,24 +257,21 @@ gui:
     - "<color:#585b70>━━━━━━━━━━━━━━━━━━━━━</color>"
     - "<color:#74c7ec>Left-Click to switch</color>"
     - "<color:#f38ba8>Right-Click to delete</color>"
-  borderMaterial: "GRAY_STAINED_GLASS_PANE"
-  borderName: " "
-  promptMessage: "<color:#cba6f7><b>Profile Creation</b></color>\n<color:#9399b2>Type a name in chat for your new profile.\nType <color:#f38ba8><b>cancel</b></color> to return.</color>"
-  cancelWord: "cancel"
-  textInputTimeoutSeconds: 30
-  profileSlotChar: "P"
-  createButtonSlotChar: "C"
-  openSoundEnabled: true
-  openSoundKey: "block.chest.open"
-  clickSoundEnabled: true
-  clickSoundKey: "ui.button.click"
-  errorSoundEnabled: true
-  errorSoundKey: "entity.villager.no"
-  closeSoundEnabled: true
-  closeSoundKey: "block.chest.close"
+  border-material: "GRAY_STAINED_GLASS_PANE"
+  border-name: " "
+  prompt-message: "<color:#74c7ec>Type a profile name in chat:</color>"
+  text-input-timeout-seconds: 15
+  cancel-word: "cancel"
+  open-sound-enabled: true
+  open-sound-key: "block.chest.open"
+  click-sound-enabled: true
+  click-sound-key: "ui.button.click"
+  close-sound-enabled: true
+  close-sound-key: "block.chest.close"
+  error-sound-enabled: true
+  error-sound-key: "entity.villager.no"
 
-# Confirmation GUI settings for deleting profiles
-confirmDelete:
+confirm-delete:
   enabled: true
   title: "<color:#f38ba8>Confirm Deleting <profile></color>"
   rows: 3
@@ -300,25 +279,24 @@ confirmDelete:
     - "#########"
     - "  C   D  "
     - "#########"
-  confirmSlotChar: "C"
-  confirmMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmViNTg4YjIxYTZmOThhZDFmZjRlMDg1YzU1MmRjYjA1MGVmYzljYWI0MjdmNDYwNDhmMThmYzgwMzQ3NWY3In19fQ=="
-  confirmName: "<color:#f38ba8><b>Confirm Deletion</b></color>"
-  confirmLore:
+  confirm-slot-char: "C"
+  confirm-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmViNTg4YjIxYTZmOThhZDFmZjRlMDg1YzU1MmRjYjA1MGVmYzljYWI0MjdmNDYwNDhmMThmYzgwMzQ3NWY3In19fQ=="
+  confirm-name: "<color:#f38ba8><b>Confirm Deletion</b></color>"
+  confirm-lore:
     - "<color:#a6adc8>Clicking here will permanently</color>"
     - "<color:#a6adc8>delete the profile <color:#fab387><profile></color>.</color>"
     - ""
     - "<color:#f38ba8><b>WARNING: This cannot be undone!</b></color>"
-  denySlotChar: "D"
-  denyMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDMxMmNhNDYzMmRlZjVmZmFmMmViMGQ5ZDdjYzdiNTVhNTBjNGUzOTIwZDkwMzcyYWFiMTQwNzgxZjVkZmJjNCJ9fX0="
-  denyName: "<color:#a6e3a1><b>Cancel</b></color>"
-  denyLore:
+  deny-slot-char: "D"
+  deny-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDMxMmNhNDYzMmRlZjVmZmFmMmViMGQ5ZDdjYzdiNTVhNTBjNGUzOTIwZDkwMzcyYWFiMTQwNzgxZjVkZmJjNCJ9fX0="
+  deny-name: "<color:#a6e3a1><b>Cancel</b></color>"
+  deny-lore:
     - "<color:#a6adc8>Click to keep your profile</color>"
     - "<color:#a6adc8>and return to the menu.</color>"
-  borderMaterial: "GRAY_STAINED_GLASS_PANE"
-  borderName: " "
+  border-material: "GRAY_STAINED_GLASS_PANE"
+  border-name: " "
 
-# Confirmation GUI settings for creating profiles
-confirmCreate:
+confirm-create:
   enabled: true
   title: "<color:#a6e3a1>Confirm Creating <name></color>"
   rows: 3
@@ -326,73 +304,117 @@ confirmCreate:
     - "#########"
     - "  C   D  "
     - "#########"
-  confirmSlotChar: "C"
-  confirmMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDMxMmNhNDYzMmRlZjVmZmFmMmViMGQ5ZDdjYzdiNTVhNTBjNGUzOTIwZDkwMzcyYWFiMTQwNzgxZjVkZmJjNCJ9fX0="
-  confirmName: "<color:#a6e3a1><b>Confirm Creation</b></color>"
-  confirmLore:
+  confirm-slot-char: "C"
+  confirm-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDMxMmNhNDYzMmRlZjVmZmFmMmViMGQ5ZDdjYzdiNTVhNTBjNGUzOTIwZDkwMzcyYWFiMTQwNzgxZjVkZmJjNCJ9fX0="
+  confirm-name: "<color:#a6e3a1><b>Confirm Creation</b></color>"
+  confirm-lore:
     - "<color:#a6adc8>Click here to create</color>"
     - "<color:#a6adc8>profile <color:#cba6f7><name></color>.</color>"
-  denySlotChar: "D"
-  denyMaterial: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmViNTg4YjIxYTZmOThhZDFmZjRlMDg1YzU1MmRjYjA1MGVmYzljYWI0MjdmNDYwNDhmMThmYzgwMzQ3NWY3In19fQ=="
-  denyName: "<color:#f38ba8><b>Cancel</b></color>"
-  denyLore:
+  deny-slot-char: "D"
+  deny-material: "head:eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmViNTg4YjIxYTZmOThhZDFmZjRlMDg1YzU1MmRjYjA1MGVmYzljYWI0MjdmNDYwNDhmMThmYzgwMzQ3NWY3In19fQ=="
+  deny-name: "<color:#f38ba8><b>Cancel</b></color>"
+  deny-lore:
     - "<color:#a6adc8>Click to cancel creation</color>"
     - "<color:#a6adc8>and return to the menu.</color>"
-  borderMaterial: "GRAY_STAINED_GLASS_PANE"
-  borderName: " "
+  border-material: "GRAY_STAINED_GLASS_PANE"
+  border-name: " "
+```
 
-# Max profile limits based on oumprofile.max.<tier> permission nodes
-limitTiers:
-  - 1
-  - 3
-  - 5
-  - 10
+### 3. `messages.yml` (Localization & Chat Messages)
 
-# Name of the default profile created on first join
-defaultProfileName: "default"
-
-# Global date format pattern
-dateFormat: "yyyy-MM-dd HH:mm"
-
-# Enable administrative alerts when players switch, create, or delete profiles
-adminAlertsEnabled: true
-
-# Maximum character length for profile names
-profileNameMaxLength: 16
-
-# Regex pattern for valid profile names
-profileNameRegex: "[a-zA-Z0-9_-]+"
+```yaml
+profile-not-found: "<color:#f38ba8>Profile <color:#fab387>'<target>'</color> does not exist.</color>"
+profile-already-active: "<color:#f38ba8>You are already using that profile.</color>"
+combat-block: "<color:#f38ba8>You cannot switch profiles while in combat.</color>"
+warmup-start: "<color:#74c7ec>Switching to <color:#cba6f7><target></color> in <color:#fab387><seconds>s</color>...</color>"
+switch-success: "<color:#a6e3a1>Switched to profile <color:#cba6f7><target></color>.</color>"
+no-permission: "<color:#f38ba8>You don't have permission to create a profile named <color:#fab387>'<name>'</color>.</color>"
+create-fail: "<color:#f38ba8>Could not create profile <color:#fab387>'<name>'</color> (limit reached or name exists).</color>"
+create-success: "<color:#a6e3a1>Created profile <color:#cba6f7><name></color>.</color>"
+delete-fail: "<color:#f38ba8>Could not delete profile <color:#fab387>'<name>'</color> (active, last remaining, or not found).</color>"
+delete-success: "<color:#a6e3a1>Deleted profile <color:#cba6f7><name></color>.</color>"
+help: "<color:#b4befe>OumProfile <color:#585b70>»</color> <color:#9399b2>/profile <list | current | create | switch | delete | rename | reload></color></color>"
+list-header: "<color:#74c7ec>Your profiles (<color:#fab387><count></color>):</color>"
+list-item-active: "<color:#a6e3a1>● <color:#cdd6f4><name></color> <color:#585b70>—</color> <color:#9399b2>Active</color></color>"
+list-item-inactive: "<color:#9399b2>○ <color:#a6adc8><name></color> <color:#585b70>—</color> <color:#6c7086>Last used <date></color></color>"
+current-profile: "<color:#b4befe>Active Profile: <color:#cba6f7><name></color></color>"
+player-only: "<color:#f38ba8>This command can only be executed by players.</color>"
+no-profiles: "<color:#9399b2>You do not have any profiles yet.</color>"
+no-active-profile: "<color:#f38ba8>You do not have an active profile loaded.</color>"
+reload-success: "<color:#a6e3a1>Configuration reloaded successfully.</color>"
+switch-cooldown: "<color:#f38ba8>You must wait <color:#fab387><seconds></color> before switching profiles again.</color>"
+max-profiles-reached: "<color:#f38ba8>You have reached the maximum number of profiles allowed (<color:#fab387><max></color>).</color>"
+cannot-delete-active: "<color:#f38ba8>You cannot delete your active profile. Switch to another profile first.</color>"
+cannot-delete-default: "<color:#f38ba8>You cannot delete the default profile.</color>"
+invalid-profile-name: "<color:#f38ba8>Profile name cannot be empty or contain spaces.</color>"
+profile-creation-cancelled: "<color:#9399b2>Profile creation cancelled.</color>"
+profile-creation-timed-out: "<color:#f38ba8>Profile creation timed out.</color>"
+player-not-found: "<color:#f38ba8>Player not found.</color>"
+admin-open-success: "<color:#a6e3a1>Opened profile menu for <color:#cba6f7><target></color>.</color>"
+admin-list-header: "<color:#74c7ec>Profiles for <color:#cba6f7><target></color> (<color:#fab387><count></color>):</color>"
+admin-create-success: "<color:#a6e3a1>Created profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
+admin-create-fail: "<color:#f38ba8>Failed to create profile for player (limit reached or name exists).</color>"
+admin-switch-success: "<color:#a6e3a1>Switched <color:#cba6f7><target></color> to profile <color:#fab387><name></color>.</color>"
+admin-switch-fail-no-profile: "<color:#f38ba8>Player does not have profile <color:#fab387>'<name>'</color>.</color>"
+admin-delete-success: "<color:#a6e3a1>Deleted profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
+admin-delete-fail: "<color:#f38ba8>Failed to delete profile for player (active, last profile, or not found).</color>"
+admin-alert-switch: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> switched to profile <color:#cba6f7><b><to></b></color></color>"
+admin-alert-create: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> created profile <color:#cba6f7><b><name></b></color></color>"
+admin-alert-delete: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> deleted profile <color:#cba6f7><b><name></b></color></color>"
+alerts-enabled: "<color:#a6e3a1>Profile alerts enabled.</color>"
+alerts-disabled: "<color:#f38ba8>Profile alerts disabled.</color>"
+warmup-cancelled-move: "<color:#f38ba8>Profile switch cancelled because you moved.</color>"
+warmup-cancelled-damage: "<color:#f38ba8>Profile switch cancelled because you took damage.</color>"
+warmup-cancelled-generic: "<color:#f38ba8>Profile switch cancelled.</color>"
+debug-enabled: "<color:#a6e3a1>Debug mode enabled.</color>"
+debug-disabled: "<color:#f38ba8>Debug mode disabled.</color>"
+rename-success: "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color>.</color>"
+rename-fail: "<color:#f38ba8>Could not rename profile <color:#fab387>'<old>'</color>.</color>"
+cannot-rename-default: "<color:#f38ba8>You cannot rename the default profile.</color>"
+admin-rename-success: "<color:#a6e3a1>Renamed profile <color:#fab387><old></color> to <color:#cba6f7><new></color> for <color:#cba6f7><target></color>.</color>"
+admin-rename-fail: "<color:#f38ba8>Failed to rename profile for player.</color>"
+admin-alert-rename: "<color:#f38ba8><b>ALERT</b></color> <color:#585b70><b>|</b></color> <color:#a6adc8><player> renamed profile <color:#cba6f7><b><old></b></color> to <color:#cba6f7><b><new></b></color></color>"
+profile-name-too-long: "<color:#f38ba8>Profile name must be at most <color:#fab387><max></color> characters.</color>"
+profile-name-invalid-chars: "<color:#f38ba8>Profile name contains invalid characters. Only letters, numbers, hyphens and underscores are allowed.</color>"
+export-success: "<color:#a6e3a1>Exported profile <color:#fab387><name></color> to file.</color>"
+import-success: "<color:#a6e3a1>Imported profile <color:#fab387><name></color> for <color:#cba6f7><target></color>.</color>"
+import-fail: "<color:#f38ba8>Failed to import profile from file.</color>"
+admin-prune-success: "<color:#a6e3a1>Successfully pruned <color:#fab387><count></color> inactive profile(s) older than <color:#fab387><days></color> days.</color>"
+admin-prune-none: "<color:#9399b2>No inactive profiles older than <color:#fab387><days></color> days were found to prune.</color>"
+invalid-days: "<color:#f38ba8>Please specify a valid number of days (greater than 0).</color>"
 ```
 
 ### Configuration Options
 
-#### Global Settings
+#### Global Settings (`config.yml`)
 
-| Option                 | Type          | Default            | Description                                                                        |
-|:-----------------------|:--------------|:-------------------|:-----------------------------------------------------------------------------------|
-| `debug`                | Boolean       | `false`            | Enable detailed debug logging in the server console.                               |
-| `defaultProfileName`   | String        | `default`          | Name of the initial profile created automatically when a player first joins.       |
-| `dateFormat`           | String        | `yyyy-MM-dd HH:mm` | Date format used for displaying profile creation and last used timestamps.         |
-| `adminAlertsEnabled`   | Boolean       | `true`             | Broadcast profile actions (create, delete, switch, rename) to administrators.      |
-| `limitTiers`           | List<Integer> | `[1, 3, 5, 10]`    | Profile slot limit thresholds based on permission nodes (e.g. `oumprofile.max.5`). |
-| `profileNameMaxLength` | Integer       | `16`               | Maximum character length allowed for profile names.                                |
-| `profileNameRegex`     | String        | `[a-zA-Z0-9_-]+`   | Regex pattern that profile names must match.                                       |
+| Option                    | Type          | Default            | Description                                                                         |
+|:--------------------------|:--------------|:-------------------|:------------------------------------------------------------------------------------|
+| `debug`                   | Boolean       | `false`            | Enable detailed debug logging in the server console.                                |
+| `default-profile-name`    | String        | `default`          | Name of the initial profile created automatically when a player first joins.        |
+| `date-format`             | String        | `yyyy-MM-dd HH:mm` | Date format used for displaying profile creation and last used timestamps.          |
+| `admin-alerts-enabled`    | Boolean       | `true`             | Broadcast profile actions (create, delete, switch, rename) to administrators.       |
+| `limit-tiers`             | List<Integer> | `[1, 3, 5, 10]`    | Profile slot limit thresholds based on permission nodes (e.g. `profiles.max.5`).    |
+| `profile-name-max-length` | Integer       | `16`               | Maximum character length allowed for profile names.                                 |
+| `profile-name-regex`      | String        | `[a-zA-Z0-9_-]+`   | Regex pattern that profile names must match.                                        |
+| `auto-save.enabled`       | Boolean       | `true`             | Enable periodic background auto-saving of active player profiles.                   |
+| `auto-save.interval-minutes` | Integer    | `5`                | Time in minutes between automatic profile saves.                                    |
 
-#### Switching Settings (`switching`)
+#### Switching Settings (`switching` in `config.yml`)
 
-| Option                  | Type    | Default | Description                                                                        |
-|:------------------------|:--------|:--------|:-----------------------------------------------------------------------------------|
-| `warmupEnabled`         | Boolean | `true`  | If true, players must stand still for a warmup duration before switching profiles. |
-| `warmupSeconds`         | Integer | `5`     | Warmup countdown duration in seconds.                                              |
-| `cancelOnMove`          | Boolean | `true`  | Cancel the switch warmup if the player moves.                                      |
-| `cancelOnDamage`        | Boolean | `true`  | Cancel the switch warmup if the player takes damage.                               |
-| `cancelInCombat`        | Boolean | `true`  | Cancel the switch warmup if the player is in combat.                               |
-| `combatTagDuration`     | Integer | `10`    | Duration in seconds that a player remains tagged in combat.                        |
-| `switchCooldownSeconds` | Integer | `10`    | Cooldown period in seconds before a player can switch profiles again.              |
-| `saveLocation`          | Boolean | `false` | Save and restore player coordinates per-profile.                                   |
-| `warmupTitleEnabled`    | Boolean | `true`  | Show title/subtitle countdown during warmup.                                       |
+| Option                     | Type    | Default | Description                                                                        |
+|:---------------------------|:--------|:--------|:-----------------------------------------------------------------------------------|
+| `warmup-enabled`           | Boolean | `true`  | If true, players must stand still for a warmup duration before switching profiles. |
+| `warmup-seconds`           | Integer | `5`     | Warmup countdown duration in seconds.                                              |
+| `cancel-on-move`           | Boolean | `true`  | Cancel the switch warmup if the player moves.                                      |
+| `cancel-on-damage`         | Boolean | `true`  | Cancel the switch warmup if the player takes damage.                               |
+| `cancel-in-combat`         | Boolean | `true`  | Cancel the switch warmup if the player is in combat.                               |
+| `combat-tag-duration`      | Integer | `10`    | Duration in seconds that a player remains tagged in combat.                        |
+| `switch-cooldown-seconds`  | Integer | `10`    | Cooldown period in seconds before a player can switch profiles again.              |
+| `save-location`             | Boolean | `false` | Save and restore player coordinates per-profile.                                   |
+| `warmup-title-enabled`     | Boolean | `true`  | Show title/subtitle countdown during warmup.                                       |
 
-#### Storage Settings (`storage`)
+#### Storage Settings (`storage` in `config.yml`)
 
 | Option     | Type    | Default      | Description                                  |
 |:-----------|:--------|:-------------|:---------------------------------------------|
@@ -403,29 +425,31 @@ profileNameRegex: "[a-zA-Z0-9_-]+"
 | `username` | String  | `root`       | Username for MySQL database authentication.  |
 | `password` | String  | `""`         | Password for MySQL database authentication.  |
 
-#### Integrations Settings
+#### Integrations Settings (`config.yml`)
 
-| Option                     | Type         | Default                           | Description                                          |
-|:---------------------------|:-------------|:----------------------------------|:-----------------------------------------------------|
-| `luckperms.enabled`        | Boolean      | `true`                            | Synchronize LuckPerms permission groups per-profile. |
-| `economy.enabled`          | Boolean      | `true`                            | Enable per-profile multi-currency balances.          |
-| `economy.currencies`       | List<String> | `["vault", "playerpoints"]`       | Currencies synchronized per-profile.                 |
-| `skills.mcmmoEnabled`      | Boolean      | `true`                            | Synchronize mcMMO level and XP per-profile.          |
-| `skills.auraSkillsEnabled` | Boolean      | `true`                            | Synchronize AuraSkills level and XP per-profile.     |
-| `skills.jobsEnabled`       | Boolean      | `true`                            | Synchronize JobsReborn job level and XP per-profile. |
-| `statistics.enabled`       | Boolean      | `true`                            | Synchronize vanilla Minecraft statistics.            |
-| `statistics.tracked`       | List<String> | `["MOB_KILLS", "DEATHS", "JUMP"]` | Vanilla statistics tracked.                          |
+| Option                      | Type         | Default                           | Description                                          |
+|:----------------------------|:-------------|:----------------------------------|:-----------------------------------------------------|
+| `luckperms.enabled`         | Boolean      | `true`                            | Synchronize LuckPerms permission groups per-profile. |
+| `economy.enabled`           | Boolean      | `true`                            | Enable per-profile multi-currency balances.          |
+| `economy.currencies`        | List<String> | `["vault", "playerpoints"]`       | Currencies synchronized per-profile.                 |
+| `skills.mcmmo-enabled`      | Boolean      | `true`                            | Synchronize mcMMO level and XP per-profile.          |
+| `skills.aura-skills-enabled`| Boolean      | `true`                            | Synchronize AuraSkills level and XP per-profile.     |
+| `skills.jobs-enabled`       | Boolean      | `true`                            | Synchronize JobsReborn job level and XP per-profile. |
+| `statistics.enabled`        | Boolean      | `true`                            | Synchronize vanilla Minecraft statistics.            |
+| `statistics.tracked`        | List<String> | `["MOB_KILLS", "DEATHS", "JUMP"]` | Vanilla statistics tracked.                          |
 
-#### GUI Settings (`gui`)
+#### GUI Settings (`menus.yml`)
 
-| Option                    | Type         | Description                                                                                         |
-|:--------------------------|:-------------|:----------------------------------------------------------------------------------------------------|
-| `title`                   | String       | Title of the profile inventory menu (supports MiniMessage).                                         |
-| `rows`                    | Integer      | Number of rows in the GUI grid (1-6).                                                               |
-| `pattern`                 | List<String> | Character pattern defining the layout (e.g. `P` for profile items, `C` for creation button).        |
-| `activeProfileMaterial`   | String       | Item material/texture for the currently active profile (supports `head:<Base64>` or `head:<Hash>`). |
-| `inactiveProfileMaterial` | String       | Item material/texture for inactive profiles.                                                        |
-| `emptySlotMaterial`       | String       | Item material/texture for unfilled profile slots.                                                   |
+| Option                      | Type         | Description                                                                                          |
+|:----------------------------|:-------------|:-----------------------------------------------------------------------------------------------------|
+| `title`                     | String       | Title of the profile inventory menu (supports MiniMessage).                                          |
+| `rows`                      | Integer      | Number of rows in the GUI grid (1-6).                                                                |
+| `pattern`                   | List<String> | Character pattern defining the layout (e.g. `P` for profile items, `C` for creation button).         |
+| `active-profile-material`   | String       | Item material/texture for the currently active profile (supports `head:<Base64>` or custom bridges).|
+| `inactive-profile-material` | String       | Item material/texture for inactive profiles.                                                         |
+| `empty-slot-material`       | String       | Item material/texture for unfilled profile slots.                                                    |
+| `confirm-delete.enabled`    | Boolean      | Toggle confirmation dialog before deleting profiles.                                                 |
+| `confirm-create.enabled`    | Boolean      | Toggle confirmation dialog before creating profiles.                                                 |
 
 ##### GUI Lore Placeholders
 
@@ -493,6 +517,10 @@ public class OumProfileAPIExample {
         // Read or adjust profile balances
         double pvpBalance = ProfileAPI.getProfileBalance(uuid, "pvp");
         ProfileAPI.setProfileBalance(uuid, "pvp", 5000.0);
+
+        // Maintenance & auto-save
+        ProfileAPI.saveAllOnline();
+        ProfileAPI.pruneInactiveProfiles(180);
 
         // Read integrated stats, playtime, and plugin data
         long playtime = ProfileAPI.getProfilePlaytimeSeconds(uuid, "pvp");

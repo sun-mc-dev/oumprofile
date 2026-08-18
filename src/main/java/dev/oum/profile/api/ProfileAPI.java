@@ -270,4 +270,24 @@ public final class ProfileAPI {
     public static boolean renameProfile(@NonNull Player player, @NonNull String oldName, @NonNull String newName) {
         return manager().renameProfile(player, oldName, newName);
     }
+
+    /**
+     * Triggers an asynchronous batch save of all online players' active profile states to database storage.
+     *
+     * @return A Promise completing when all profile saves have concluded.
+     */
+    public static @NonNull Promise<Void> saveAllOnline() {
+        return manager().saveAllOnline();
+    }
+
+    /**
+     * Prunes all offline player profiles from the database that haven't been used in the given number of days.
+     * Profiles belonging to currently online players are preserved.
+     *
+     * @param days Inactivity threshold in days (must be greater than 0).
+     * @return A Promise completing with the number of deleted profile rows.
+     */
+    public static @NonNull Promise<Integer> pruneInactiveProfiles(int days) {
+        return manager().pruneInactiveProfiles(days);
+    }
 }

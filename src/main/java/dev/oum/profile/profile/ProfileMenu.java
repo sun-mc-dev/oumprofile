@@ -1,18 +1,16 @@
 package dev.oum.profile.profile;
 
 import dev.oum.oumlib.bridge.economy.EconomyBridge;
-import dev.oum.oumlib.bridge.item.ItemBridge;
 import dev.oum.oumlib.bridge.permission.PermissionBridge;
-import dev.oum.oumlib.inventory.ChestMenu;
-import dev.oum.oumlib.inventory.ClickAction;
-import dev.oum.oumlib.inventory.ItemBuilder;
-import dev.oum.oumlib.inventory.Layout;
+import dev.oum.oumlib.inventory.*;
 import dev.oum.oumlib.scheduler.Scheduler;
 import dev.oum.oumlib.scheduler.TaskHandle;
+import dev.oum.oumlib.text.Format;
 import dev.oum.oumlib.text.Text;
 import dev.oum.oumlib.text.TextInput;
-import dev.oum.oumlib.util.Format;
 import dev.oum.profile.command.Permissions;
+import dev.oum.profile.config.MenusConfig;
+import dev.oum.profile.config.MenusConfig.ConfirmGuiSection;
 import dev.oum.profile.config.ProfileConfig;
 import dev.oum.profile.integration.IntegrationManager;
 import dev.oum.profile.integration.SkillData;
@@ -27,8 +25,6 @@ import org.jspecify.annotations.NonNull;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -44,27 +40,9 @@ public final class ProfileMenu {
         this.manager = manager;
     }
 
-    private static @NonNull ItemBuilder resolveItem(@NonNull String input, @NonNull Material fallback) {
-        if (input.startsWith("head:") || input.startsWith("skull:")) {
-            String texture = input.substring(input.indexOf(':') + 1);
-            return ItemBuilder.of(Material.PLAYER_HEAD).skull(texture);
-        }
-        return ItemBuilder.of(ItemBridge.getItem(input).orElseGet(() -> new ItemStack(fallback)));
-    }
-
-    private @NonNull DateTimeFormatter dateFormatter() {
-        try {
-            return DateTimeFormatter.ofPattern(manager.configManager().get().dateFormat())
-                    .withZone(ZoneId.systemDefault());
-        } catch (IllegalArgumentException e) {
-            return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-                    .withZone(ZoneId.systemDefault());
-        }
-    }
-
     public void open(@NonNull Player player) {
-        ProfileConfig mainConfig = manager.configManager().get();
-        ProfileConfig.GuiSection cfg = mainConfig.gui();
+        ProfileConfig config = manager.config();
+        MenusConfig.GuiSection cfg = config.menus().gui();
         Map<String, ProfileData> profiles = manager.getProfiles(player.getUniqueId());
         String activeProfile = manager.getActiveProfileName(player.getUniqueId());
 
@@ -91,17 +69,10 @@ public final class ProfileMenu {
         }
 
         // Bind border characters dynamically
-        ItemStack borderItem = resolveItem(cfg.borderMaterial(), Material.GRAY_STAINED_GLASS_PANE)
+        ItemStack borderItem = ItemBuilder.from(cfg.borderMaterial(), Material.GRAY_STAINED_GLASS_PANE)
                 .name(cfg.borderName())
                 .build();
-
-        for (String row : patternList) {
-            for (char ch : row.toCharArray()) {
-                if (ch != pChar && ch != cChar && ch != ' ') {
-                    builder = builder.bind(ch, borderItem);
-                }
-            }
-        }
+        builder = builder.bindBorders(borderItem, pChar, cChar);
 
         // Bind Create Profile button ('C')
         builder = builder.bind(cChar, () -> {
@@ -123,14 +94,14 @@ public final class ProfileMenu {
                 );
             }
 
-            return resolveItem(matStr, fallback)
+            return ItemBuilder.from(matStr, fallback)
                     .name(displayName)
                     .lore(formattedLore.toArray(new String[0]))
                     .build();
         }).onClick(cChar, ctx -> {
             int max = manager.getMaxProfiles(player);
             if (profiles.size() >= max) {
-                Text.send(player, mainConfig.messages().maxProfilesReached());
+                Text.send(player, config.messages().maxProfilesReached());
                 playErrorSound(player, cfg);
                 return;
             }
@@ -161,7 +132,7 @@ public final class ProfileMenu {
             final int index = i;
             builder = builder.item(slot, () -> {
                 if (index >= profileList.size()) {
-                    return resolveItem(cfg.emptySlotMaterial(), Material.LIGHT_GRAY_STAINED_GLASS_PANE)
+                    return ItemBuilder.from(cfg.emptySlotMaterial(), Material.LIGHT_GRAY_STAINED_GLASS_PANE)
                             .name(cfg.emptySlotName())
                             .build();
                 }
@@ -181,8 +152,8 @@ public final class ProfileMenu {
                 List<String> formattedLore = new ArrayList<>();
                 for (String line : rawLore) {
                     formattedLore.add(line
-                            .replace("<created>", dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
-                            .replace("<last_used>", dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
+                            .replace("<created>", manager.dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
+                            .replace("<last_used>", manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
                             .replace("<balance>", String.format(Locale.ROOT, "%.2f", data.balance()))
                             .replace("<group>", data.primaryGroup() != null ? data.primaryGroup() : "default")
                             .replace("<playtime>", data.state().playtimeSeconds() != null
@@ -193,7 +164,7 @@ public final class ProfileMenu {
                     );
                 }
 
-                var item = resolveItem(matStr, fallback)
+                var item = ItemBuilder.from(matStr, fallback)
                         .name(displayName)
                         .lore(formattedLore.toArray(new String[0]));
 
@@ -210,31 +181,31 @@ public final class ProfileMenu {
                 };
                 if (isRightClick) {
                     if (isActive) {
-                        Text.send(player, mainConfig.messages().cannotDeleteActive());
+                        Text.send(player, config.messages().cannotDeleteActive());
                         playErrorSound(player, cfg);
                         return;
                     }
-                    if (data.name().equalsIgnoreCase(manager.configManager().get().defaultProfileName())) {
-                        Text.send(player, mainConfig.messages().cannotDeleteDefault());
+                    if (data.name().equalsIgnoreCase(config.main().defaultProfileName())) {
+                        Text.send(player, config.messages().cannotDeleteDefault());
                         playErrorSound(player, cfg);
                         return;
                     }
-                    if (mainConfig.confirmDelete().enabled()) {
-                        new ConfirmMenu(mainConfig.confirmDelete(), data.name(), () -> {
+                    if (config.menus().confirmDelete().enabled()) {
+                        openConfirmDialog(player, config.menus().confirmDelete(), data.name(), () -> {
                             if (manager.deleteProfile(player, data.name())) {
-                                Text.send(player, mainConfig.messages().deleteSuccess(), "name", data.name());
+                                Text.send(player, config.messages().deleteSuccess(), "name", data.name());
                                 open(player);
                             } else {
-                                Text.send(player, mainConfig.messages().deleteFail(), "name", data.name());
+                                Text.send(player, config.messages().deleteFail(), "name", data.name());
                                 playErrorSound(player, cfg);
                             }
-                        }, () -> open(player)).open(player);
+                        }, () -> open(player));
                     } else {
                         if (manager.deleteProfile(player, data.name())) {
-                            Text.send(player, mainConfig.messages().deleteSuccess(), "name", data.name());
+                            Text.send(player, config.messages().deleteSuccess(), "name", data.name());
                             open(player);
                         } else {
-                            Text.send(player, mainConfig.messages().deleteFail(), "name", data.name());
+                            Text.send(player, config.messages().deleteFail(), "name", data.name());
                             playErrorSound(player, cfg);
                         }
                     }
@@ -279,15 +250,15 @@ public final class ProfileMenu {
         taskRef.set(task);
     }
 
-    private void playErrorSound(@NonNull Player player, ProfileConfig.@NonNull GuiSection cfg) {
+    private void playErrorSound(@NonNull Player player, MenusConfig.@NonNull GuiSection cfg) {
         if (cfg.errorSoundEnabled() && cfg.errorSoundKey() != null && !cfg.errorSoundKey().isEmpty()) {
             player.playSound(Sound.sound(Key.key(cfg.errorSoundKey()), Sound.Source.MASTER, 1.0f, 1.0f));
         }
     }
 
     private void openCreationInput(@NonNull Player player) {
-        ProfileConfig mainConfig = manager.configManager().get();
-        ProfileConfig.GuiSection cfg = mainConfig.gui();
+        ProfileConfig config = manager.config();
+        MenusConfig.GuiSection cfg = config.menus().gui();
 
         TextInput.builder()
                 .prompt(Text.parse(cfg.promptMessage()))
@@ -295,62 +266,49 @@ public final class ProfileMenu {
                 .cancelWord(cfg.cancelWord())
                 .onInput((p, text) -> {
                     String clean = text.trim();
-                    ProfileManager.NameValidation validation = manager.validateProfileName(clean);
-                    switch (validation) {
-                        case EMPTY -> {
-                            Text.send(p, mainConfig.messages().invalidProfileName());
-                            return false;
-                        }
-                        case TOO_LONG -> {
-                            Text.send(p, mainConfig.messages().profileNameTooLong(), "max", String.valueOf(mainConfig.profileNameMaxLength()));
-                            return false;
-                        }
-                        case INVALID_CHARS -> {
-                            Text.send(p, mainConfig.messages().profileNameInvalidChars());
-                            return false;
-                        }
-                        default -> {
-                        }
-                    }
-                    if (!p.hasPermission(Permissions.CREATE_PREFIX + clean) && !p.hasPermission(Permissions.CREATE_ALL)) {
-                        Text.send(p, mainConfig.messages().noPermission(), "name", clean);
+                    if (!manager.checkNameValidation(p, clean)) {
                         return false;
                     }
-                    if (mainConfig.confirmCreate().enabled()) {
-                        new ConfirmMenu(mainConfig.confirmCreate(), clean, () -> {
+                    if (!p.hasPermission(Permissions.CREATE_PREFIX + clean) && !p.hasPermission(Permissions.CREATE_ALL)) {
+                        Text.send(p, config.messages().noPermission(), "name", clean);
+                        return false;
+                    }
+                    if (config.menus().confirmCreate().enabled()) {
+                        openConfirmDialog(p, config.menus().confirmCreate(), clean, () -> {
                             if (manager.createProfile(p, clean)) {
-                                Text.send(p, mainConfig.messages().createSuccess(), "name", clean);
+                                Text.send(p, config.messages().createSuccess(), "name", clean);
                                 open(p);
                             } else {
-                                Text.send(p, mainConfig.messages().createFail(), "name", clean);
+                                Text.send(p, config.messages().createFail(), "name", clean);
                             }
                         }, () -> {
-                            Text.send(p, mainConfig.messages().profileCreationCancelled());
+                            Text.send(p, config.messages().profileCreationCancelled());
                             open(p);
-                        }).open(p);
+                        });
                         return true;
                     }
                     if (manager.createProfile(p, clean)) {
-                        Text.send(p, mainConfig.messages().createSuccess(), "name", clean);
+                        Text.send(p, config.messages().createSuccess(), "name", clean);
                         open(p);
                         return true;
                     } else {
-                        Text.send(p, mainConfig.messages().createFail(), "name", clean);
+                        Text.send(p, config.messages().createFail(), "name", clean);
                         return false;
                     }
                 })
                 .onCancel(p -> {
-                    Text.send(p, mainConfig.messages().profileCreationCancelled());
+                    Text.send(p, config.messages().profileCreationCancelled());
                     open(p);
                 })
                 .onTimeout(p -> {
-                    Text.send(p, mainConfig.messages().profileCreationTimedOut());
+                    Text.send(p, config.messages().profileCreationTimedOut());
                     open(p);
                 })
                 .start(player);
     }
 
-    private @NonNull ItemStack buildActiveProfileItem(@NonNull Player player, @NonNull ProfileData data, ProfileConfig.@NonNull GuiSection cfg) {
+    private @NonNull ItemStack buildActiveProfileItem(@NonNull Player player,
+                                                      @NonNull ProfileData data, MenusConfig.@NonNull GuiSection cfg) {
         String matStr = cfg.activeProfileMaterial();
         Material fallback = Material.BOOK;
 
@@ -372,8 +330,8 @@ public final class ProfileMenu {
         List<String> formattedLore = new ArrayList<>();
         for (String line : rawLore) {
             formattedLore.add(line
-                    .replace("<created>", dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
-                    .replace("<last_used>", dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
+                    .replace("<created>", manager.dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
+                    .replace("<last_used>", manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
                     .replace("<balance>", String.format(Locale.ROOT, "%.2f", balanceVal))
                     .replace("<group>", groupVal)
                     .replace("<playtime>", Format.duration(Duration.ofSeconds(playtimeSecs)))
@@ -383,7 +341,7 @@ public final class ProfileMenu {
             );
         }
 
-        var item = resolveItem(matStr, fallback)
+        var item = ItemBuilder.from(matStr, fallback)
                 .name(displayName)
                 .lore(formattedLore.toArray(new String[0]))
                 .glow();
@@ -400,5 +358,46 @@ public final class ProfileMenu {
             list.add(entry.getKey() + " (Lv. " + entry.getValue().level() + ")");
         }
         return String.join(", ", list);
+    }
+
+    private void openConfirmDialog(@NonNull Player player, @NonNull ConfirmGuiSection section, @NonNull String targetName,
+                                   @NonNull Runnable onConfirm, @NonNull Runnable onDeny) {
+        String resolvedTitle = section.title()
+                .replace("<profile>", targetName)
+                .replace("<name>", targetName);
+
+        char confirmChar = section.confirmSlotChar().isEmpty() ? 'C' : section.confirmSlotChar().charAt(0);
+        char denyChar = section.denySlotChar().isEmpty() ? 'D' : section.denySlotChar().charAt(0);
+
+        ItemStack borderItem = ItemBuilder.from(section.borderMaterial(), Material.GRAY_STAINED_GLASS_PANE)
+                .name(section.borderName())
+                .build();
+
+        ConfirmMenu.builder()
+                .title(resolvedTitle)
+                .rows(section.rows())
+                .pattern(section.pattern())
+                .confirmSlot(confirmChar)
+                .denySlot(denyChar)
+                .border(borderItem)
+                .confirmItem(() -> ItemBuilder.from(section.confirmMaterial(), Material.GREEN_WOOL)
+                        .name(section.confirmName().replace("<profile>", targetName).replace("<name>", targetName))
+                        .lore(formatLore(section.confirmLore(), targetName))
+                        .build())
+                .denyItem(() -> ItemBuilder.from(section.denyMaterial(), Material.RED_WOOL)
+                        .name(section.denyName().replace("<profile>", targetName).replace("<name>", targetName))
+                        .lore(formatLore(section.denyLore(), targetName))
+                        .build())
+                .onConfirm(onConfirm)
+                .onDeny(onDeny)
+                .open(player);
+    }
+
+    private String @NonNull [] formatLore(@NonNull List<String> raw, @NonNull String targetName) {
+        List<String> formatted = new ArrayList<>(raw.size());
+        for (String line : raw) {
+            formatted.add(line.replace("<profile>", targetName).replace("<name>", targetName));
+        }
+        return formatted.toArray(new String[0]);
     }
 }

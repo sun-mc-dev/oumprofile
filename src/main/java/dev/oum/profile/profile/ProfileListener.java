@@ -1,9 +1,8 @@
 package dev.oum.profile.profile;
 
 import dev.oum.oumlib.OumLib;
-import dev.oum.oumlib.config.ConfigManager;
+import dev.oum.oumlib.bridge.combat.CombatBridge;
 import dev.oum.oumlib.event.Events;
-import dev.oum.profile.config.ProfileConfig;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -12,9 +11,11 @@ import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.*;
 import org.jspecify.annotations.NonNull;
 
+import java.time.Duration;
+
 public final class ProfileListener {
 
-    public ProfileListener(@NonNull ProfileManager manager, @NonNull ConfigManager<ProfileConfig> configManager) {
+    public ProfileListener(@NonNull ProfileManager manager) {
         Events.listen(PlayerJoinEvent.class)
                 .handler(e -> {
                     OumLib.logDebug("PlayerJoinEvent fired for player " + e.getPlayer().getName());
@@ -28,7 +29,7 @@ public final class ProfileListener {
                 });
 
         Events.listen(PlayerMoveEvent.class)
-                .filter(e -> configManager.get().switching().cancelOnMove())
+                .filter(e -> manager.config().main().switching().cancelOnMove())
                 .filter(e -> manager.hasPendingWarmup(e.getPlayer().getUniqueId()))
                 .filter(e -> {
                     var from = e.getFrom();
@@ -37,7 +38,7 @@ public final class ProfileListener {
                 })
                 .handler(e -> {
                     OumLib.logDebug("Cancelling profile switch warmup for player " + e.getPlayer().getName() + " due to movement.");
-                    manager.cancelWarmup(e.getPlayer().getUniqueId(), configManager.get().messages().warmupCancelledMove());
+                    manager.cancelWarmup(e.getPlayer().getUniqueId(), manager.config().messages().warmupCancelledMove());
                 });
 
         Events.listen(EntityDamageByEntityEvent.class)
@@ -52,13 +53,14 @@ public final class ProfileListener {
 
                     if (attacker != null) {
                         OumLib.logDebug("Combat tag applied to victim " + victim.getName() + " and attacker " + attacker.getName());
-                        manager.combatCooldown().set(victim.getUniqueId());
-                        manager.combatCooldown().set(attacker.getUniqueId());
+                        Duration duration = Duration.ofSeconds(manager.config().main().switching().combatTagDuration());
+                        CombatBridge.tag(victim, duration);
+                        CombatBridge.tag(attacker, duration);
                     }
 
-                    if (configManager.get().switching().cancelOnDamage() && manager.hasPendingWarmup(victim.getUniqueId())) {
+                    if (manager.config().main().switching().cancelOnDamage() && manager.hasPendingWarmup(victim.getUniqueId())) {
                         OumLib.logDebug("Cancelling profile switch warmup for player " + victim.getName() + " due to combat damage.");
-                        manager.cancelWarmup(victim.getUniqueId(), configManager.get().messages().warmupCancelledDamage());
+                        manager.cancelWarmup(victim.getUniqueId(), manager.config().messages().warmupCancelledDamage());
                     }
                 });
 
@@ -68,14 +70,14 @@ public final class ProfileListener {
                 .handler(e -> {
                     Player p = (Player) e.getPlayer();
                     OumLib.logDebug("Cancelling profile switch warmup for player " + p.getName() + " due to opening an inventory.");
-                    manager.cancelWarmup(p.getUniqueId(), configManager.get().messages().warmupCancelledGeneric());
+                    manager.cancelWarmup(p.getUniqueId(), manager.config().messages().warmupCancelledGeneric());
                 });
 
         Events.listen(PlayerDropItemEvent.class)
                 .filter(e -> manager.hasPendingWarmup(e.getPlayer().getUniqueId()))
                 .handler(e -> {
                     OumLib.logDebug("Cancelling profile switch warmup for player " + e.getPlayer().getName() + " due to dropping an item.");
-                    manager.cancelWarmup(e.getPlayer().getUniqueId(), configManager.get().messages().warmupCancelledGeneric());
+                    manager.cancelWarmup(e.getPlayer().getUniqueId(), manager.config().messages().warmupCancelledGeneric());
                 });
 
         Events.listen(EntityPickupItemEvent.class)
@@ -84,21 +86,21 @@ public final class ProfileListener {
                 .handler(e -> {
                     Player p = (Player) e.getEntity();
                     OumLib.logDebug("Cancelling profile switch warmup for player " + p.getName() + " due to picking up an item.");
-                    manager.cancelWarmup(p.getUniqueId(), configManager.get().messages().warmupCancelledGeneric());
+                    manager.cancelWarmup(p.getUniqueId(), manager.config().messages().warmupCancelledGeneric());
                 });
 
         Events.listen(PlayerInteractEvent.class)
                 .filter(e -> manager.hasPendingWarmup(e.getPlayer().getUniqueId()))
                 .handler(e -> {
                     OumLib.logDebug("Cancelling profile switch warmup for player " + e.getPlayer().getName() + " due to interaction.");
-                    manager.cancelWarmup(e.getPlayer().getUniqueId(), configManager.get().messages().warmupCancelledGeneric());
+                    manager.cancelWarmup(e.getPlayer().getUniqueId(), manager.config().messages().warmupCancelledGeneric());
                 });
 
         Events.listen(PlayerTeleportEvent.class)
                 .filter(e -> manager.hasPendingWarmup(e.getPlayer().getUniqueId()))
                 .handler(e -> {
                     OumLib.logDebug("Cancelling profile switch warmup for player " + e.getPlayer().getName() + " due to teleportation.");
-                    manager.cancelWarmup(e.getPlayer().getUniqueId(), configManager.get().messages().warmupCancelledGeneric());
+                    manager.cancelWarmup(e.getPlayer().getUniqueId(), manager.config().messages().warmupCancelledGeneric());
                 });
     }
 }

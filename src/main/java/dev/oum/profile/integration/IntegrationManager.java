@@ -7,10 +7,7 @@ import dev.oum.profile.integration.jobs.JobsImpl;
 import dev.oum.profile.integration.mcmmo.McMMOHandler;
 import dev.oum.profile.integration.mcmmo.McMMOImpl;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
-
-import java.util.HashMap;
-import java.util.Map;
+import org.jspecify.annotations.NonNull;
 
 public final class IntegrationManager {
 
@@ -19,54 +16,27 @@ public final class IntegrationManager {
     private static final JobsHandler jobs;
 
     static {
-        mcmmo = Bukkit.getPluginManager().isPluginEnabled("mcMMO") ? new McMMOImpl() : new McMMOHandler() {
-            @Override
-            public Map<String, SkillData> capture(Player player) {
-                return new HashMap<>();
-            }
-
-            @Override
-            public void restore(Player player, Map<String, SkillData> data) {
-            }
-        };
+        mcmmo = Bukkit.getPluginManager().isPluginEnabled("mcMMO") ? new McMMOImpl() : McMMOHandler.NOOP;
 
         auraSkills = (Bukkit.getPluginManager().isPluginEnabled("AuraSkills")
                 || Bukkit.getPluginManager().isPluginEnabled("AureliumSkills"))
-                ? new AuraSkillsImpl() : new AuraSkillsHandler() {
-            @Override
-            public Map<String, SkillData> capture(Player player) {
-                return new HashMap<>();
-            }
+                ? new AuraSkillsImpl() : AuraSkillsHandler.NOOP;
 
-            @Override
-            public void restore(Player player, Map<String, SkillData> data) {
-            }
-        };
-
-        jobs = Bukkit.getPluginManager().isPluginEnabled("Jobs") ? new JobsImpl() : new JobsHandler() {
-            @Override
-            public Map<String, SkillData> capture(Player player) {
-                return new HashMap<>();
-            }
-
-            @Override
-            public void restore(Player player, Map<String, SkillData> data) {
-            }
-        };
+        jobs = Bukkit.getPluginManager().isPluginEnabled("Jobs") ? new JobsImpl() : JobsHandler.NOOP;
     }
 
     private IntegrationManager() {
     }
 
-    public static McMMOHandler mcmmo() {
+    public static @NonNull McMMOHandler mcmmo() {
         return mcmmo;
     }
 
-    public static AuraSkillsHandler auraSkills() {
+    public static @NonNull AuraSkillsHandler auraSkills() {
         return auraSkills;
     }
 
-    public static JobsHandler jobs() {
+    public static @NonNull JobsHandler jobs() {
         return jobs;
     }
 }

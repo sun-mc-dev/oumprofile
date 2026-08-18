@@ -15,8 +15,6 @@ import org.jspecify.annotations.NonNull;
 
 import java.io.File;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -29,7 +27,6 @@ public final class ProfileCommand {
         this.manager = manager;
     }
 
-    @SuppressWarnings("ResultOfMethodCallIgnored")
     public void register() {
         Commands.create("profile")
                 .aliases("profiles", "prof")
@@ -59,7 +56,8 @@ public final class ProfileCommand {
                 .subcommand(s -> s.label("debug")
                         .permission(Permissions.ADMIN)
                         .executes(this::onDebug))
-                .subcommand(s -> s.label("help").executes(this::onHelp))
+                .subcommand(s -> s.label("help")
+                        .executes(this::onHelp))
                 .subcommand(admin -> admin.label("admin")
                         .permission(Permissions.ADMIN)
                         .subcommand(s -> {
@@ -121,6 +119,10 @@ public final class ProfileCommand {
                                     .argument(Arguments.word("file").suggests(ctx -> this.suggestExportFiles()))
                                     .executes(ctx -> this.onAdminImport(ctx, targetArg));
                         })
+                        .subcommand(s -> s.label("prune")
+                                .argument(Arguments.integer("days"))
+                                .executes(this::onAdminPrune)
+                        )
                 )
                 .executes(this::onGui)
                 .register();
@@ -143,23 +145,13 @@ public final class ProfileCommand {
         return names;
     }
 
-    private @NonNull DateTimeFormatter dateFormatter() {
-        try {
-            return DateTimeFormatter.ofPattern(manager.configManager().get().dateFormat())
-                    .withZone(ZoneId.systemDefault());
-        } catch (IllegalArgumentException e) {
-            return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-                    .withZone(ZoneId.systemDefault());
-        }
-    }
-
     private void onHelp(@NonNull CommandContext ctx) {
-        Text.send(ctx.sender(), manager.configManager().get().messages().help());
+        Text.send(ctx.sender(), manager.config().messages().help());
     }
 
     private void onList(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
@@ -167,62 +159,45 @@ public final class ProfileCommand {
         String active = manager.getActiveProfileName(player.getUniqueId());
 
         if (profiles.isEmpty()) {
-            Text.send(player, manager.configManager().get().messages().noProfiles());
+            Text.send(player, manager.config().messages().noProfiles());
             return;
         }
 
-        Text.send(player, manager.configManager().get().messages().listHeader(), "count", String.valueOf(profiles.size()));
+        Text.send(player, manager.config().messages().listHeader(), "count", String.valueOf(profiles.size()));
         for (ProfileData data : profiles.values()) {
             boolean isActive = data.name().equals(active);
-            String format = isActive ? manager.configManager().get().messages().listItemActive()
-                    : manager.configManager().get().messages().listItemInactive();
+            String format = isActive ? manager.config().messages().listItemActive()
+                    : manager.config().messages().listItemInactive();
             Text.send(player, format,
                     "name", data.name(),
-                    "date", dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())));
+                    "date", manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())));
         }
     }
 
     private void onCurrent(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
         String active = manager.getActiveProfileName(player.getUniqueId());
         if (active == null) {
-            Text.send(player, manager.configManager().get().messages().noActiveProfile());
+            Text.send(player, manager.config().messages().noActiveProfile());
             return;
         }
-        Text.send(player, manager.configManager().get().messages().currentProfile(), "name", active);
+        Text.send(player, manager.config().messages().currentProfile(), "name", active);
     }
 
     private void onCreate(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
         String name = ctx.args().getString("name");
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
 
-        ProfileManager.NameValidation validation = manager.validateProfileName(name);
-        switch (validation) {
-            case EMPTY -> {
-                Text.send(player, msg.invalidProfileName());
-                return;
-            }
-            case TOO_LONG -> {
-                Text.send(player, msg.profileNameTooLong(), "max",
-                        String.valueOf(manager.configManager().get().profileNameMaxLength()));
-                return;
-            }
-            case INVALID_CHARS -> {
-                Text.send(player, msg.profileNameInvalidChars());
-                return;
-            }
-            default -> {
-            }
-        }
+        if (!manager.checkNameValidation(player, name)) return;
 
         if (!player.hasPermission(Permissions.CREATE_PREFIX + name) && !player.hasPermission(Permissions.CREATE_ALL)) {
             Text.send(player, msg.noPermission(), "name", name);
@@ -240,7 +215,7 @@ public final class ProfileCommand {
 
     private void onSwitch(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
@@ -250,59 +225,42 @@ public final class ProfileCommand {
 
     private void onDelete(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
         String name = ctx.args().getString("name");
 
-        if (name.equalsIgnoreCase(manager.configManager().get().defaultProfileName())) {
-            Text.send(player, manager.configManager().get().messages().cannotDeleteDefault());
+        if (name.equalsIgnoreCase(manager.config().main().defaultProfileName())) {
+            Text.send(player, manager.config().messages().cannotDeleteDefault());
             return;
         }
 
         boolean deleted = manager.deleteProfile(player, name);
         if (!deleted) {
-            Text.send(player, manager.configManager().get().messages().deleteFail(), "name", name);
+            Text.send(player, manager.config().messages().deleteFail(), "name", name);
             return;
         }
 
-        Text.send(player, manager.configManager().get().messages().deleteSuccess(), "name", name);
+        Text.send(player, manager.config().messages().deleteSuccess(), "name", name);
     }
 
     private void onRename(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
         String oldName = ctx.args().getString("old");
         String newName = ctx.args().getString("new");
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
 
-        if (oldName.equalsIgnoreCase(manager.configManager().get().defaultProfileName())) {
+        if (oldName.equalsIgnoreCase(manager.config().main().defaultProfileName())) {
             Text.send(player, msg.cannotRenameDefault());
             return;
         }
 
-        ProfileManager.NameValidation validation = manager.validateProfileName(newName);
-        switch (validation) {
-            case EMPTY -> {
-                Text.send(player, msg.invalidProfileName());
-                return;
-            }
-            case TOO_LONG -> {
-                Text.send(player, msg.profileNameTooLong(), "max",
-                        String.valueOf(manager.configManager().get().profileNameMaxLength()));
-                return;
-            }
-            case INVALID_CHARS -> {
-                Text.send(player, msg.profileNameInvalidChars());
-                return;
-            }
-            default -> {
-            }
-        }
+        if (!manager.checkNameValidation(player, newName)) return;
 
         boolean renamed = manager.renameProfile(player, oldName, newName);
         if (renamed) {
@@ -313,13 +271,13 @@ public final class ProfileCommand {
     }
 
     private void onReload(@NonNull CommandContext ctx) {
-        manager.configManager().reload();
-        Text.send(ctx.sender(), manager.configManager().get().messages().reloadSuccess());
+        manager.config().reload();
+        Text.send(ctx.sender(), manager.config().messages().reloadSuccess());
     }
 
     private void onGui(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         new ProfileMenu(manager).open(ctx.playerOrThrow());
@@ -338,7 +296,7 @@ public final class ProfileCommand {
 
     private void onAdminOpen(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -349,7 +307,7 @@ public final class ProfileCommand {
 
     private void onAdminList(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -368,37 +326,20 @@ public final class ProfileCommand {
             String format = isActive ? msg.listItemActive() : msg.listItemInactive();
             Text.send(ctx.sender(), format,
                     "name", data.name(),
-                    "date", dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())));
+                    "date", manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())));
         }
     }
 
     private void onAdminCreate(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
         }
         String profileName = ctx.args().getString("profile");
 
-        ProfileManager.NameValidation validation = manager.validateProfileName(profileName);
-        switch (validation) {
-            case EMPTY -> {
-                Text.send(ctx.sender(), msg.invalidProfileName());
-                return;
-            }
-            case TOO_LONG -> {
-                Text.send(ctx.sender(), msg.profileNameTooLong(), "max",
-                        String.valueOf(manager.configManager().get().profileNameMaxLength()));
-                return;
-            }
-            case INVALID_CHARS -> {
-                Text.send(ctx.sender(), msg.profileNameInvalidChars());
-                return;
-            }
-            default -> {
-            }
-        }
+        if (!manager.checkNameValidation(ctx.sender(), profileName)) return;
 
         boolean created = manager.createProfile(target, profileName);
         if (created) {
@@ -410,7 +351,7 @@ public final class ProfileCommand {
 
     private void onAdminSwitch(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -428,7 +369,7 @@ public final class ProfileCommand {
 
     private void onAdminDelete(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -444,7 +385,7 @@ public final class ProfileCommand {
 
     private void onAdminRename(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -452,29 +393,12 @@ public final class ProfileCommand {
         String oldName = ctx.args().getString("old");
         String newName = ctx.args().getString("new");
 
-        if (oldName.equalsIgnoreCase(manager.configManager().get().defaultProfileName())) {
+        if (oldName.equalsIgnoreCase(manager.config().main().defaultProfileName())) {
             Text.send(ctx.sender(), msg.cannotRenameDefault());
             return;
         }
 
-        ProfileManager.NameValidation validation = manager.validateProfileName(newName);
-        switch (validation) {
-            case EMPTY -> {
-                Text.send(ctx.sender(), msg.invalidProfileName());
-                return;
-            }
-            case TOO_LONG -> {
-                Text.send(ctx.sender(), msg.profileNameTooLong(), "max",
-                        String.valueOf(manager.configManager().get().profileNameMaxLength()));
-                return;
-            }
-            case INVALID_CHARS -> {
-                Text.send(ctx.sender(), msg.profileNameInvalidChars());
-                return;
-            }
-            default -> {
-            }
-        }
+        if (!manager.checkNameValidation(ctx.sender(), newName)) return;
 
         boolean renamed = manager.renameProfile(target, oldName, newName);
         if (renamed) {
@@ -486,7 +410,7 @@ public final class ProfileCommand {
 
     private void onAdminExport(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -511,7 +435,7 @@ public final class ProfileCommand {
 
     private void onAdminImport(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.configManager().get().messages();
+        var msg = manager.config().messages();
         if (target == null) {
             Text.send(ctx.sender(), msg.playerNotFound());
             return;
@@ -553,15 +477,15 @@ public final class ProfileCommand {
 
     private void onAlerts(@NonNull CommandContext ctx) {
         if (!ctx.isPlayer()) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().playerOnly());
+            Text.send(ctx.sender(), manager.config().messages().playerOnly());
             return;
         }
         Player player = ctx.playerOrThrow();
         boolean enabled = manager.toggleAlerts(player.getUniqueId());
         if (enabled) {
-            Text.send(player, manager.configManager().get().messages().alertsEnabled());
+            Text.send(player, manager.config().messages().alertsEnabled());
         } else {
-            Text.send(player, manager.configManager().get().messages().alertsDisabled());
+            Text.send(player, manager.config().messages().alertsDisabled());
         }
     }
 
@@ -570,9 +494,26 @@ public final class ProfileCommand {
         OumLib.setDebug(!current);
         boolean enabled = !current;
         if (enabled) {
-            Text.send(ctx.sender(), manager.configManager().get().messages().debugEnabled());
+            Text.send(ctx.sender(), manager.config().messages().debugEnabled());
         } else {
-            Text.send(ctx.sender(), manager.configManager().get().messages().debugDisabled());
+            Text.send(ctx.sender(), manager.config().messages().debugDisabled());
         }
+    }
+
+    private void onAdminPrune(@NonNull CommandContext ctx) {
+        var msg = manager.config().messages();
+        int days = ctx.args().getInt("days");
+        if (days <= 0) {
+            Text.send(ctx.sender(), msg.invalidDays());
+            return;
+        }
+
+        manager.pruneInactiveProfiles(days).thenAccept(count -> {
+            if (count > 0) {
+                Text.send(ctx.sender(), msg.adminPruneSuccess(), "count", String.valueOf(count), "days", String.valueOf(days));
+            } else {
+                Text.send(ctx.sender(), msg.adminPruneNone(), "days", String.valueOf(days));
+            }
+        });
     }
 }

@@ -1,6 +1,6 @@
 package dev.oum.profile.command;
 
-import dev.oum.oumlib.util.Permission;
+import dev.oum.oumlib.bridge.permission.Permission;
 
 public final class Permissions {
 

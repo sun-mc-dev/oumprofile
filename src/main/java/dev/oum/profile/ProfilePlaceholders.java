@@ -1,7 +1,7 @@
 package dev.oum.profile;
 
+import dev.oum.oumlib.text.Format;
 import dev.oum.oumlib.text.placeholder.PlaceholderRegistry;
-import dev.oum.oumlib.util.Format;
 import dev.oum.profile.integration.SkillData;
 import dev.oum.profile.profile.ProfileManager;
 import org.bukkit.entity.Player;
@@ -67,7 +67,7 @@ public final class ProfilePlaceholders {
                     return Format.duration(Duration.ofSeconds(base + elapsed));
                 });
 
-        var config = manager.configManager().get();
+        var config = manager.config().main();
         if (config.economy() != null && config.economy().currencies() != null) {
             for (String currency : config.economy().currencies()) {
                 registerCurrencyPlaceholder(currency, manager);

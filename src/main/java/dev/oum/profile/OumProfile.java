@@ -1,7 +1,6 @@
 package dev.oum.profile;
 
 import dev.oum.oumlib.OumLib;
-import dev.oum.oumlib.config.ConfigManager;
 import dev.oum.oumlib.text.Text;
 import dev.oum.profile.api.ProfileAPI;
 import dev.oum.profile.command.ProfileCommand;
@@ -22,20 +21,22 @@ public final class OumProfile extends JavaPlugin {
     public void onEnable() {
         OumLib.init(this);
 
-        ConfigManager<ProfileConfig> configManager = ConfigManager.of(ProfileConfig.class,
-                        "config.yml", ProfileConfig::defaults)
-                .onReload(cfg -> OumLib.setDebug(cfg.debug()))
-                .enableAutoReload();
+        ProfileConfig config = ProfileConfig.create(() -> {
+            if (manager != null) {
+                OumLib.setDebug(manager.config().main().debug());
+                manager.startAutoSave();
+            }
+        });
 
-        OumLib.setDebug(configManager.get().debug());
+        OumLib.setDebug(config.main().debug());
 
-        storage = new ProfileStorage(configManager.get().storage());
-        manager = new ProfileManager(configManager, storage);
+        storage = new ProfileStorage(config.main().storage());
+        manager = new ProfileManager(config, storage);
         ProfileAPI.init(manager);
 
         ProfilePlaceholders.register(manager);
 
-        new ProfileListener(manager, configManager);
+        new ProfileListener(manager);
         new ProfileCommand(manager).register();
 
         List.of(

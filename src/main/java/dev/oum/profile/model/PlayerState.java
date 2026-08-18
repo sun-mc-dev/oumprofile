@@ -3,10 +3,10 @@ package dev.oum.profile.model;
 import com.google.gson.Gson;
 import dev.oum.oumlib.bridge.StatisticsBridge;
 import dev.oum.oumlib.bridge.economy.EconomyBridge;
-import dev.oum.oumlib.util.ItemSerializer;
-import dev.oum.oumlib.util.Locations;
-import dev.oum.oumlib.util.PotionSerializer;
-import dev.oum.profile.config.ProfileConfig;
+import dev.oum.oumlib.inventory.ItemSerializer;
+import dev.oum.oumlib.inventory.PotionSerializer;
+import dev.oum.oumlib.math.Locations;
+import dev.oum.profile.config.MainConfig;
 import dev.oum.profile.integration.IntegrationManager;
 import dev.oum.profile.integration.SkillData;
 import org.bukkit.GameMode;
@@ -76,7 +76,7 @@ public record PlayerState(
     }
 
     public static @NonNull PlayerState capture(@NonNull Player player, boolean saveLocation,
-                                               @NonNull ProfileConfig config, long currentPlaytimeSeconds) {
+                                               @NonNull MainConfig config, long currentPlaytimeSeconds) {
         ItemStack[] invSlots = player.getInventory().getStorageContents();
 
         var maxHpAttr = player.getAttribute(Attribute.MAX_HEALTH);
@@ -150,7 +150,7 @@ public record PlayerState(
         return GSON.fromJson(json, PlayerState.class);
     }
 
-    public void apply(@NonNull Player player, boolean restoreLocation, @NonNull ProfileConfig config) {
+    public void apply(@NonNull Player player, boolean restoreLocation, @NonNull MainConfig config) {
         player.getInventory().setStorageContents(ItemSerializer.deserializeArray(inventory));
         player.getInventory().setArmorContents(ItemSerializer.deserializeArray(armor));
         player.getInventory().setItemInOffHand(ItemSerializer.deserialize(offhand));
