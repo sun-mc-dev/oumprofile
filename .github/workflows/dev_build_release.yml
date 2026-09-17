@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout OumProfile
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout OumLib
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: sun-mc-dev/oumlib
           path: oumlib
