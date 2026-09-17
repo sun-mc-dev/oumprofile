@@ -3,6 +3,8 @@ package dev.oum.profile;
 import dev.oum.oumlib.text.Format;
 import dev.oum.oumlib.text.placeholder.PlaceholderRegistry;
 import dev.oum.profile.integration.SkillData;
+import dev.oum.profile.model.PlayerState;
+import dev.oum.profile.model.ProfileData;
 import dev.oum.profile.profile.ProfileManager;
 import org.bukkit.entity.Player;
 import org.jspecify.annotations.NonNull;
@@ -10,6 +12,7 @@ import org.jspecify.annotations.NonNull;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiFunction;
 
 public final class ProfilePlaceholders {
 
@@ -34,23 +37,17 @@ public final class ProfilePlaceholders {
                 })
                 .add("balance", obj -> {
                     if (!(obj instanceof Player player)) return "0.00";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0.00";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
                     return profile != null ? String.format(Locale.ROOT, "%.2f", profile.balance()) : "0.00";
                 })
                 .add("group", obj -> {
                     if (!(obj instanceof Player player)) return "default";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "default";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
                     return (profile != null && profile.primaryGroup() != null) ? profile.primaryGroup() : "default";
                 })
                 .add("playtime", obj -> {
                     if (!(obj instanceof Player player)) return "0";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
                     if (profile == null) return "0";
                     long elapsed = manager.getElapsedSessionSeconds(player.getUniqueId());
                     long base = profile.state().playtimeSeconds() != null ? profile.state().playtimeSeconds() : 0L;
@@ -58,9 +55,7 @@ public final class ProfilePlaceholders {
                 })
                 .add("playtime_formatted", obj -> {
                     if (!(obj instanceof Player player)) return "0s";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0s";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
                     if (profile == null) return "0s";
                     long elapsed = manager.getElapsedSessionSeconds(player.getUniqueId());
                     long base = profile.state().playtimeSeconds() != null ? profile.state().playtimeSeconds() : 0L;
@@ -78,61 +73,40 @@ public final class ProfilePlaceholders {
     }
 
     public static void registerSkillPlaceholder(String pluginName, String skillName, ProfileManager manager) {
-        if (registry == null) return;
         String baseKey = "skill_" + pluginName.toLowerCase(Locale.ROOT) + "_" + skillName.toLowerCase(Locale.ROOT);
-        String lvlKey = baseKey + "_level";
-        String xpKey = baseKey + "_xp";
-
-        registry.forNamespace("oumprofile")
-                .add(lvlKey, obj -> {
-                    if (!(obj instanceof Player player)) return "0";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
-                    if (profile == null) return "0";
-                    Map<String, SkillData> skillMap = pluginName.equalsIgnoreCase("mcmmo")
-                            ? profile.state().mcmmo() : profile.state().auraskills();
-                    if (skillMap == null) return "0";
-                    SkillData sd = skillMap.get(skillName);
-                    return sd != null ? String.valueOf(sd.level()) : "0";
-                })
-                .add(xpKey, obj -> {
-                    if (!(obj instanceof Player player)) return "0.0";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0.0";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
-                    if (profile == null) return "0.0";
-                    Map<String, SkillData> skillMap = pluginName.equalsIgnoreCase("mcmmo")
-                            ? profile.state().mcmmo() : profile.state().auraskills();
-                    if (skillMap == null) return "0.0";
-                    SkillData sd = skillMap.get(skillName);
-                    return sd != null ? String.format(Locale.ROOT, "%.1f", sd.xp()) : "0.0";
-                });
+        registerSkillLevelAndXp(baseKey, manager, (state, key) -> {
+            Map<String, SkillData> skillMap = pluginName.equalsIgnoreCase("mcmmo")
+                    ? state.mcmmo() : state.auraskills();
+            return skillMap != null ? skillMap.get(key) : null;
+        }, skillName);
     }
 
     public static void registerJobPlaceholder(String jobName, ProfileManager manager) {
-        if (registry == null) return;
         String baseKey = "job_" + jobName.toLowerCase(Locale.ROOT);
-        String lvlKey = baseKey + "_level";
-        String xpKey = baseKey + "_xp";
+        registerSkillLevelAndXp(baseKey, manager, (state, key) ->
+                state.jobs() != null ? state.jobs().get(key) : null, jobName);
+    }
 
+    private static void registerSkillLevelAndXp(
+            String baseKey,
+            ProfileManager manager,
+            BiFunction<PlayerState, String, SkillData> skillExtractor,
+            String skillKey
+    ) {
+        if (registry == null) return;
         registry.forNamespace("oumprofile")
-                .add(lvlKey, obj -> {
+                .add(baseKey + "_level", obj -> {
                     if (!(obj instanceof Player player)) return "0";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
-                    if (profile == null || profile.state().jobs() == null) return "0";
-                    SkillData sd = profile.state().jobs().get(jobName);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
+                    if (profile == null) return "0";
+                    SkillData sd = skillExtractor.apply(profile.state(), skillKey);
                     return sd != null ? String.valueOf(sd.level()) : "0";
                 })
-                .add(xpKey, obj -> {
+                .add(baseKey + "_xp", obj -> {
                     if (!(obj instanceof Player player)) return "0.0";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0.0";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
-                    if (profile == null || profile.state().jobs() == null) return "0.0";
-                    SkillData sd = profile.state().jobs().get(jobName);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
+                    if (profile == null) return "0.0";
+                    SkillData sd = skillExtractor.apply(profile.state(), skillKey);
                     return sd != null ? String.format(Locale.ROOT, "%.1f", sd.xp()) : "0.0";
                 });
     }
@@ -143,9 +117,7 @@ public final class ProfilePlaceholders {
         registry.forNamespace("oumprofile")
                 .add(key, obj -> {
                     if (!(obj instanceof Player player)) return "0.00";
-                    String active = manager.getActiveProfileName(player.getUniqueId());
-                    if (active == null) return "0.00";
-                    var profile = manager.getProfiles(player.getUniqueId()).get(active);
+                    ProfileData profile = manager.getActiveProfile(player.getUniqueId());
                     if (profile == null || profile.state().currencies() == null) return "0.00";
                     double bal = profile.state().currencies().getOrDefault(currency, 0.0);
                     return String.format(Locale.ROOT, "%.2f", bal);

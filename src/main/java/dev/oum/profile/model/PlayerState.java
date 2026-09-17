@@ -1,6 +1,7 @@
 package dev.oum.profile.model;
 
 import com.google.gson.Gson;
+import dev.oum.oumlib.OumLib;
 import dev.oum.oumlib.bridge.StatisticsBridge;
 import dev.oum.oumlib.bridge.economy.EconomyBridge;
 import dev.oum.oumlib.inventory.ItemSerializer;
@@ -50,13 +51,17 @@ public record PlayerState(
 ) {
 
     private static final Gson GSON = new Gson();
+    private static final String EMPTY_INV_36 = ItemSerializer.serializeArray(new ItemStack[36]);
+    private static final String EMPTY_ARMOR_4 = ItemSerializer.serializeArray(new ItemStack[4]);
+    private static final String EMPTY_OFFHAND = ItemSerializer.serialize(null);
+    private static final String EMPTY_CHEST_27 = ItemSerializer.serializeArray(new ItemStack[27]);
 
     public static @NonNull PlayerState fresh() {
         return new PlayerState(
-                ItemSerializer.serializeArray(new ItemStack[36]),
-                ItemSerializer.serializeArray(new ItemStack[4]),
-                ItemSerializer.serialize(null),
-                ItemSerializer.serializeArray(new ItemStack[27]),
+                EMPTY_INV_36,
+                EMPTY_ARMOR_4,
+                EMPTY_OFFHAND,
+                EMPTY_CHEST_27,
                 20.0, 20.0, 20, 5.0f, 0, 0.0f,
                 GameMode.SURVIVAL.name(),
                 "",
@@ -66,11 +71,11 @@ public record PlayerState(
                 false,
                 false,
                 null,
-                new HashMap<>(),
-                new HashMap<>(),
-                new HashMap<>(),
-                new HashMap<>(),
-                new HashMap<>(),
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(),
                 0L
         );
     }
@@ -151,13 +156,31 @@ public record PlayerState(
     }
 
     public void apply(@NonNull Player player, boolean restoreLocation, @NonNull MainConfig config) {
-        player.getInventory().setStorageContents(ItemSerializer.deserializeArray(inventory));
-        player.getInventory().setArmorContents(ItemSerializer.deserializeArray(armor));
-        player.getInventory().setItemInOffHand(ItemSerializer.deserialize(offhand));
+        try {
+            player.getInventory().setStorageContents(ItemSerializer.deserializeArray(inventory));
+        } catch (Exception e) {
+            OumLib.logError("Failed to restore inventory storage contents for " + player.getName(), e);
+        }
+        try {
+            player.getInventory().setArmorContents(ItemSerializer.deserializeArray(armor));
+        } catch (Exception e) {
+            OumLib.logError("Failed to restore armor contents for " + player.getName(), e);
+        }
+        try {
+            player.getInventory().setItemInOffHand(ItemSerializer.deserialize(offhand));
+        } catch (Exception e) {
+            OumLib.logError("Failed to restore offhand item for " + player.getName(), e);
+        }
 
-        ItemStack[] chest = ItemSerializer.deserializeArray(enderChest);
-        for (int i = 0; i < Math.min(chest.length, player.getEnderChest().getSize()); i++) {
-            player.getEnderChest().setItem(i, chest[i]);
+        try {
+            ItemStack[] chest = ItemSerializer.deserializeArray(enderChest);
+            if (chest != null) {
+                for (int i = 0; i < Math.min(chest.length, player.getEnderChest().getSize()); i++) {
+                    player.getEnderChest().setItem(i, chest[i]);
+                }
+            }
+        } catch (Exception e) {
+            OumLib.logError("Failed to restore ender chest contents for " + player.getName(), e);
         }
 
         var maxHpAttr = player.getAttribute(Attribute.MAX_HEALTH);
@@ -174,7 +197,7 @@ public record PlayerState(
             player.setGameMode(GameMode.SURVIVAL);
         }
 
-        player.getActivePotionEffects().forEach(e -> player.removePotionEffect(e.getType()));
+        player.clearActivePotionEffects();
         for (PotionEffect effect : PotionSerializer.deserialize(potionEffects)) {
             player.addPotionEffect(effect);
         }

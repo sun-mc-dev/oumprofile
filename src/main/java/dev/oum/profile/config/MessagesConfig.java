@@ -69,7 +69,10 @@ public record MessagesConfig(
         String importFail,
         String adminPruneSuccess,
         String adminPruneNone,
-        String invalidDays
+        String invalidDays,
+        String cannotSwitchDead,
+        String disabledWorld,
+        String disabledRegion
 ) implements ConfigSection {
 
     @Contract(" -> new")
@@ -133,7 +136,10 @@ public record MessagesConfig(
                 "<color:#f38ba8>Failed to import profile from file.</color>",
                 "<color:#a6e3a1>Successfully pruned <color:#fab387><count></color> inactive profile(s) older than <color:#fab387><days></color> days.</color>",
                 "<color:#9399b2>No inactive profiles older than <color:#fab387><days></color> days were found to prune.</color>",
-                "<color:#f38ba8>Please specify a valid number of days (greater than 0).</color>"
+                "<color:#f38ba8>Please specify a valid number of days (greater than 0).</color>",
+                "<color:#f38ba8>You cannot switch profiles while dead.</color>",
+                "<color:#f38ba8>Profile switching is disabled in this world.</color>",
+                "<color:#f38ba8>Profile switching is not allowed in this region.</color>"
         );
     }
 }

@@ -50,13 +50,14 @@ public final class ProfileMenu {
         char cChar = cfg.createButtonSlotChar().isEmpty() ? 'C' : cfg.createButtonSlotChar().charAt(0);
 
         List<String> patternList = cfg.pattern();
-        Layout tempLayout = new Layout(patternList.toArray(new String[0]));
+        String[] pattern = patternList.toArray(new String[0]);
+        Layout tempLayout = new Layout(pattern);
         List<Integer> profileSlots = tempLayout.slotsFor(pChar);
 
         ChestMenu.Builder builder = ChestMenu.builder()
                 .title(cfg.title())
                 .rows(cfg.rows())
-                .pattern(patternList.toArray(new String[0]));
+                .pattern(pattern);
 
         if (cfg.openSoundEnabled() && cfg.openSoundKey() != null && !cfg.openSoundKey().isEmpty()) {
             builder = builder.openSound(Sound.sound(Key.key(cfg.openSoundKey()), Sound.Source.MASTER, 1.0f, 1.0f));
@@ -101,7 +102,7 @@ public final class ProfileMenu {
         }).onClick(cChar, ctx -> {
             int max = manager.getMaxProfiles(player);
             if (profiles.size() >= max) {
-                Text.send(player, config.messages().maxProfilesReached());
+                Text.send(player, config.messages().maxProfilesReached(), "max", String.valueOf(max));
                 playErrorSound(player, cfg);
                 return;
             }
@@ -145,30 +146,23 @@ public final class ProfileMenu {
 
                 String matStr = cfg.inactiveProfileMaterial();
                 Material fallback = Material.WRITTEN_BOOK;
-
                 String displayName = cfg.inactiveProfileName().replace("<name>", data.name());
 
-                List<String> rawLore = cfg.inactiveProfileLore();
-                List<String> formattedLore = new ArrayList<>();
-                for (String line : rawLore) {
-                    formattedLore.add(line
-                            .replace("<created>", manager.dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
-                            .replace("<last_used>", manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
-                            .replace("<balance>", String.format(Locale.ROOT, "%.2f", data.balance()))
-                            .replace("<group>", data.primaryGroup() != null ? data.primaryGroup() : "default")
-                            .replace("<playtime>", data.state().playtimeSeconds() != null
-                                    ? Format.duration(Duration.ofSeconds(data.state().playtimeSeconds())) : "0s")
-                            .replace("<jobs>", formatSkills(data.state().jobs()))
-                            .replace("<mcmmo>", formatSkills(data.state().mcmmo()))
-                            .replace("<auraskills>", formatSkills(data.state().auraskills()))
-                    );
-                }
+                List<String> formattedLore = formatProfileLore(
+                        cfg.inactiveProfileLore(),
+                        data,
+                        data.balance(),
+                        data.primaryGroup() != null ? data.primaryGroup() : "default",
+                        data.state().playtimeSeconds() != null ? data.state().playtimeSeconds() : 0L,
+                        formatSkills(data.state().jobs()),
+                        formatSkills(data.state().mcmmo()),
+                        formatSkills(data.state().auraskills())
+                );
 
-                var item = ItemBuilder.from(matStr, fallback)
+                return ItemBuilder.from(matStr, fallback)
                         .name(displayName)
-                        .lore(formattedLore.toArray(new String[0]));
-
-                return item.build();
+                        .lore(formattedLore.toArray(new String[0]))
+                        .build();
             }).onClick(slot, ctx -> {
                 if (index >= profileList.size()) return;
                 ProfileData data = profileList.get(index);
@@ -190,17 +184,7 @@ public final class ProfileMenu {
                         playErrorSound(player, cfg);
                         return;
                     }
-                    if (config.menus().confirmDelete().enabled()) {
-                        openConfirmDialog(player, config.menus().confirmDelete(), data.name(), () -> {
-                            if (manager.deleteProfile(player, data.name())) {
-                                Text.send(player, config.messages().deleteSuccess(), "name", data.name());
-                                open(player);
-                            } else {
-                                Text.send(player, config.messages().deleteFail(), "name", data.name());
-                                playErrorSound(player, cfg);
-                            }
-                        }, () -> open(player));
-                    } else {
+                    Runnable performDelete = () -> {
                         if (manager.deleteProfile(player, data.name())) {
                             Text.send(player, config.messages().deleteSuccess(), "name", data.name());
                             open(player);
@@ -208,6 +192,11 @@ public final class ProfileMenu {
                             Text.send(player, config.messages().deleteFail(), "name", data.name());
                             playErrorSound(player, cfg);
                         }
+                    };
+                    if (config.menus().confirmDelete().enabled()) {
+                        openConfirmDialog(player, config.menus().confirmDelete(), data.name(), performDelete, () -> open(player));
+                    } else {
+                        performDelete.run();
                     }
                 } else {
                     if (isActive) {
@@ -273,28 +262,23 @@ public final class ProfileMenu {
                         Text.send(p, config.messages().noPermission(), "name", clean);
                         return false;
                     }
+                    Runnable performCreate = () -> {
+                        if (manager.createProfile(p, clean)) {
+                            Text.send(p, config.messages().createSuccess(), "name", clean);
+                            open(p);
+                        } else {
+                            Text.send(p, config.messages().createFail(), "name", clean);
+                        }
+                    };
                     if (config.menus().confirmCreate().enabled()) {
-                        openConfirmDialog(p, config.menus().confirmCreate(), clean, () -> {
-                            if (manager.createProfile(p, clean)) {
-                                Text.send(p, config.messages().createSuccess(), "name", clean);
-                                open(p);
-                            } else {
-                                Text.send(p, config.messages().createFail(), "name", clean);
-                            }
-                        }, () -> {
+                        openConfirmDialog(p, config.menus().confirmCreate(), clean, performCreate, () -> {
                             Text.send(p, config.messages().profileCreationCancelled());
                             open(p);
                         });
-                        return true;
-                    }
-                    if (manager.createProfile(p, clean)) {
-                        Text.send(p, config.messages().createSuccess(), "name", clean);
-                        open(p);
-                        return true;
                     } else {
-                        Text.send(p, config.messages().createFail(), "name", clean);
-                        return false;
+                        performCreate.run();
                     }
+                    return true;
                 })
                 .onCancel(p -> {
                     Text.send(p, config.messages().profileCreationCancelled());
@@ -322,31 +306,54 @@ public final class ProfileMenu {
         long base = data.state().playtimeSeconds() != null ? data.state().playtimeSeconds() : 0L;
         long playtimeSecs = base + elapsed;
 
-        Map<String, SkillData> jobs = IntegrationManager.jobs().capture(player);
-        Map<String, SkillData> mcmmo = IntegrationManager.mcmmo().capture(player);
-        Map<String, SkillData> auraskills = IntegrationManager.auraSkills().capture(player);
+        List<String> formattedLore = formatProfileLore(
+                cfg.activeProfileLore(),
+                data,
+                balanceVal,
+                groupVal,
+                playtimeSecs,
+                formatSkills(IntegrationManager.jobs().capture(player)),
+                formatSkills(IntegrationManager.mcmmo().capture(player)),
+                formatSkills(IntegrationManager.auraSkills().capture(player))
+        );
 
-        List<String> rawLore = cfg.activeProfileLore();
-        List<String> formattedLore = new ArrayList<>();
-        for (String line : rawLore) {
-            formattedLore.add(line
-                    .replace("<created>", manager.dateFormatter().format(Instant.ofEpochMilli(data.createdAt())))
-                    .replace("<last_used>", manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed())))
-                    .replace("<balance>", String.format(Locale.ROOT, "%.2f", balanceVal))
-                    .replace("<group>", groupVal)
-                    .replace("<playtime>", Format.duration(Duration.ofSeconds(playtimeSecs)))
-                    .replace("<jobs>", formatSkills(jobs))
-                    .replace("<mcmmo>", formatSkills(mcmmo))
-                    .replace("<auraskills>", formatSkills(auraskills))
-            );
-        }
-
-        var item = ItemBuilder.from(matStr, fallback)
+        return ItemBuilder.from(matStr, fallback)
                 .name(displayName)
                 .lore(formattedLore.toArray(new String[0]))
-                .glow();
+                .glow()
+                .build();
+    }
 
-        return item.build();
+    private @NonNull List<String> formatProfileLore(
+            @NonNull List<String> rawLore,
+            @NonNull ProfileData data,
+            double balance,
+            @NonNull String group,
+            long playtimeSeconds,
+            @NonNull String jobs,
+            @NonNull String mcmmo,
+            @NonNull String auraskills
+    ) {
+        List<String> formatted = new ArrayList<>(rawLore.size());
+        String created = manager.dateFormatter().format(Instant.ofEpochMilli(data.createdAt()));
+        String lastUsed = manager.dateFormatter().format(Instant.ofEpochMilli(data.lastUsed()));
+        String balanceStr = String.format(Locale.ROOT, "%.2f", balance);
+        String playtimeStr = Format.duration(Duration.ofSeconds(playtimeSeconds));
+
+        for (String line : rawLore) {
+            formatted.add(line
+                    .replace("<name>", data.name())
+                    .replace("<created>", created)
+                    .replace("<last_used>", lastUsed)
+                    .replace("<balance>", balanceStr)
+                    .replace("<group>", group)
+                    .replace("<playtime>", playtimeStr)
+                    .replace("<jobs>", jobs)
+                    .replace("<mcmmo>", mcmmo)
+                    .replace("<auraskills>", auraskills)
+            );
+        }
+        return formatted;
     }
 
     private @NonNull String formatSkills(@Nullable Map<String, SkillData> map) {

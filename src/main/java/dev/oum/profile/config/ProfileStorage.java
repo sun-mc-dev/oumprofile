@@ -8,8 +8,10 @@ import dev.oum.profile.model.ProfileData;
 import org.jspecify.annotations.NonNull;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -45,7 +47,7 @@ public final class ProfileStorage {
     }
 
     private static @NonNull String id(@NonNull UUID uuid) {
-        return uuid.toString().toLowerCase(Locale.ROOT);
+        return uuid.toString();
     }
 
     public @NonNull Promise<List<ProfileData>> loadAll(@NonNull UUID uuid) {
@@ -71,6 +73,20 @@ public final class ProfileStorage {
                 id(uuid), data.name(), data.createdAt(), data.lastUsed(), data.state().toJson(),
                 data.balance(), data.primaryGroup(), data.groupsJson(), data.active() ? 1 : 0
         ).map(rows -> null);
+    }
+
+    public @NonNull Promise<Void> saveBatch(@NonNull List<Map.Entry<UUID, ProfileData>> entries) {
+        if (entries.isEmpty()) return Promise.empty();
+        List<Object[]> batch = new ArrayList<>(entries.size());
+        for (Map.Entry<UUID, ProfileData> entry : entries) {
+            UUID uuid = entry.getKey();
+            ProfileData data = entry.getValue();
+            batch.add(new Object[]{
+                    id(uuid), data.name(), data.createdAt(), data.lastUsed(), data.state().toJson(),
+                    data.balance(), data.primaryGroup(), data.groupsJson(), data.active() ? 1 : 0
+            });
+        }
+        return db.executeBatch(saveSql, batch).map(res -> null);
     }
 
     public @NonNull Promise<Void> setActive(@NonNull UUID uuid, @NonNull String name) {
@@ -99,17 +115,15 @@ public final class ProfileStorage {
         if (excludeUuids.isEmpty()) {
             return db.executeUpdate("DELETE FROM oum_profiles WHERE last_used < ?", cutoffMillis);
         }
-        StringBuilder sql = new StringBuilder("DELETE FROM oum_profiles WHERE last_used < ? AND uuid NOT IN (");
+        String placeholders = String.join(",", Collections.nCopies(excludeUuids.size(), "?"));
+        String sql = "DELETE FROM oum_profiles WHERE last_used < ? AND uuid NOT IN (" + placeholders + ")";
         Object[] params = new Object[1 + excludeUuids.size()];
         params[0] = cutoffMillis;
         int idx = 1;
         for (UUID u : excludeUuids) {
-            if (idx > 1) sql.append(",");
-            sql.append("?");
             params[idx++] = id(u);
         }
-        sql.append(")");
-        return db.executeUpdate(sql.toString(), params);
+        return db.executeUpdate(sql, params);
     }
 
     public @NonNull Promise<Boolean> exists(@NonNull UUID uuid, @NonNull String name) {

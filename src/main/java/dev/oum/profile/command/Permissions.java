@@ -23,6 +23,8 @@ public final class Permissions {
     public static final String BYPASS_COMBAT = "profiles.bypass.combat";
     public static final String BYPASS_WARMUP = "profiles.bypass.warmup";
     public static final String BYPASS_COOLDOWN = "profiles.bypass.cooldown";
+    public static final String BYPASS_WORLD = "profiles.bypass.world";
+    public static final String BYPASS_REGION = "profiles.bypass.region";
 
     private Permissions() {
     }

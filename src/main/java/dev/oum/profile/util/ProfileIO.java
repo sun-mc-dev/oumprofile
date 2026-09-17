@@ -71,12 +71,16 @@ public final class ProfileIO {
         }
     }
 
+    private static File exportsDir;
+
     public static @NonNull File getExportsDir() {
-        File dir = new File(OumLib.getDataFolder(), "exports");
-        if (!dir.exists()) {
-            dir.mkdirs();
+        if (exportsDir == null) {
+            exportsDir = new File(OumLib.getDataFolder(), "exports");
+            if (!exportsDir.exists()) {
+                exportsDir.mkdirs();
+            }
         }
-        return dir;
+        return exportsDir;
     }
 
     private record ExportWrapper(

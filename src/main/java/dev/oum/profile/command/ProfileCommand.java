@@ -11,7 +11,9 @@ import dev.oum.profile.profile.ProfileManager;
 import dev.oum.profile.profile.ProfileMenu;
 import dev.oum.profile.util.ProfileIO;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.io.File;
 import java.time.Instant;
@@ -134,15 +136,9 @@ public final class ProfileCommand {
         return manager.getProfiles(player.getUniqueId()).keySet();
     }
 
-    private @NonNull Collection<String> suggestExportFiles() {
-        File dir = ProfileIO.getExportsDir();
-        File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
-        if (files == null) return List.of();
-        List<String> names = new ArrayList<>();
-        for (File f : files) {
-            names.add(f.getName());
-        }
-        return names;
+    private @NonNull @Unmodifiable Collection<String> suggestExportFiles() {
+        String[] files = ProfileIO.getExportsDir().list((d, name) -> name.endsWith(".json"));
+        return files != null ? List.of(files) : List.of();
     }
 
     private void onHelp(@NonNull CommandContext ctx) {
@@ -294,24 +290,25 @@ public final class ProfileCommand {
         return List.of();
     }
 
-    private void onAdminOpen(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
+    private @Nullable Player getTargetOrReply(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
         Player target = (Player) ctx.args().get(targetArg);
-        var msg = manager.config().messages();
         if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
+            Text.send(ctx.sender(), manager.config().messages().playerNotFound());
         }
+        return target;
+    }
+
+    private void onAdminOpen(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         new ProfileMenu(manager).open(target);
-        Text.send(ctx.sender(), msg.adminOpenSuccess(), "target", target.getName());
+        Text.send(ctx.sender(), manager.config().messages().adminOpenSuccess(), "target", target.getName());
     }
 
     private void onAdminList(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         var profiles = manager.getProfiles(target.getUniqueId());
         String active = manager.getActiveProfileName(target.getUniqueId());
 
@@ -331,12 +328,9 @@ public final class ProfileCommand {
     }
 
     private void onAdminCreate(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         String profileName = ctx.args().getString("profile");
 
         if (!manager.checkNameValidation(ctx.sender(), profileName)) return;
@@ -350,12 +344,9 @@ public final class ProfileCommand {
     }
 
     private void onAdminSwitch(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         String profileName = ctx.args().getString("profile");
         if (!manager.hasProfile(target.getUniqueId(), profileName)) {
             Text.send(ctx.sender(), msg.adminSwitchFailNoProfile(), "name", profileName);
@@ -368,12 +359,9 @@ public final class ProfileCommand {
     }
 
     private void onAdminDelete(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         String profileName = ctx.args().getString("profile");
         boolean deleted = manager.deleteProfile(target, profileName);
         if (deleted) {
@@ -384,12 +372,9 @@ public final class ProfileCommand {
     }
 
     private void onAdminRename(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         String oldName = ctx.args().getString("old");
         String newName = ctx.args().getString("new");
 
@@ -409,12 +394,9 @@ public final class ProfileCommand {
     }
 
     private void onAdminExport(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         String profileName = ctx.args().getString("profile");
         var profiles = manager.getProfiles(target.getUniqueId());
         ProfileData data = profiles.get(profileName);
@@ -434,12 +416,9 @@ public final class ProfileCommand {
     }
 
     private void onAdminImport(@NonNull CommandContext ctx, @NonNull Argument<?> targetArg) {
-        Player target = (Player) ctx.args().get(targetArg);
+        Player target = getTargetOrReply(ctx, targetArg);
+        if (target == null) return;
         var msg = manager.config().messages();
-        if (target == null) {
-            Text.send(ctx.sender(), msg.playerNotFound());
-            return;
-        }
         String fileName = ctx.args().getString("file");
         File importFile = new File(ProfileIO.getExportsDir(), fileName);
         if (!importFile.exists()) {

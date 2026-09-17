@@ -57,9 +57,7 @@ public final class ProfileAPI {
      * @return The active ProfileData, or null if not loaded.
      */
     public static @Nullable ProfileData getActiveProfile(@NonNull UUID uuid) {
-        String activeName = getActiveProfileName(uuid);
-        if (activeName == null) return null;
-        return getProfiles(uuid).get(activeName);
+        return manager().getActiveProfile(uuid);
     }
 
     /**

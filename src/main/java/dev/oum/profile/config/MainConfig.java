@@ -28,6 +28,9 @@ public record MainConfig(
         @Comment("Global date format pattern")
         String dateFormat,
 
+        @Comment("Capture existing player inventory and state into the default profile on first join")
+        boolean captureExistingOnFirstJoin,
+
         @Comment("Enable administrative alerts when players switch, create, or delete profiles")
         boolean adminAlertsEnabled,
 
@@ -69,6 +72,7 @@ public record MainConfig(
                 "default",
                 "yyyy-MM-dd HH:mm",
                 true,
+                true,
                 16,
                 "[a-zA-Z0-9_-]+",
                 List.of(1, 3, 5, 10),
@@ -77,7 +81,8 @@ public record MainConfig(
                 new SwitchSection(
                         true, 5, true, true, true, 10, 10, false,
                         true, "<color:#74c7ec>Switching Profile...</color>", "<color:#9399b2>Do not move for <color:#f9e2af><seconds>s</color></color>",
-                        true, "block.note_block.hat", "entity.player.levelup", "entity.villager.no"
+                        true, "block.note_block.hat", "entity.player.levelup", "entity.villager.no",
+                        List.of(), List.of(), false
                 ),
                 new LuckPermsSection(true),
                 new EconomySection(true, List.of("vault", "playerpoints")),
@@ -146,7 +151,14 @@ public record MainConfig(
             @Comment("Warmup completion sound key")
             String warmupCompleteSoundKey,
             @Comment("Warmup cancellation sound key")
-            String warmupCancelSoundKey
+            String warmupCancelSoundKey,
+
+            @Comment("List of world names where profile switching is prohibited")
+            List<String> disabledWorlds,
+            @Comment("List of WorldGuard region names where profile switching is prohibited")
+            List<String> disabledRegions,
+            @Comment("Require player to be in a safe zone (no PvP) to switch profiles")
+            boolean requireSafeZone
     ) implements ConfigSection {
     }
 
