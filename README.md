@@ -24,7 +24,7 @@ Each player profile stores:
 * **Movement States**: Flight capabilities (allowFlight and isFlying state).
 * **Optional Features**: Coordinate location (if saveLocation is enabled), Vault balance, LuckPerms group, mcMMO skills,
   AuraSkills, JobsReborn jobs, custom multi-currencies, playtime tracking, and vanilla Minecraft statistics.
-* **Server Resilience**: Non-blocking periodic auto-save to protect against sudden crashes, plus administrative stale profile pruning (`/profile admin prune <days>`) to keep databases compact.
+* **Server Resilience & Safeguards**: Non-blocking periodic auto-save (batch transactions), administrative stale profile pruning (`/profile admin prune <days>`), first-join inventory preservation, cursor-item desync protection, vehicle auto-eject & warmup cancellation, dead-player switch prevention, and world/region restrictions (WorldGuard & Towny).
 
 ---
 
@@ -44,6 +44,7 @@ The plugin automatically integrates with the following if present on the server:
 * **AuraSkills**: For per-profile skill level and experience synchronization.
 * **JobsReborn**: For per-profile job level and experience progression.
 * **CombatLogX / PvPManager / DeluxeCombat**: Automatic combat tag detection for profile switch blocking.
+* **WorldGuard & Towny**: For region-based profile switching restrictions and safe-zone enforcement.
 * **PlaceholderAPI & MiniPlaceholders**: For displaying profile statistics in chats, scoreboards, and tablists.
 
 ---
@@ -107,6 +108,8 @@ The following placeholders are supported under the `oumprofile` namespace:
 | `profiles.bypass.combat`                          | Allows switching profiles while tagged in combat.            | OP                             |
 | `profiles.bypass.warmup`                          | Bypasses the switch countdown warmup.                        | OP                             |
 | `profiles.bypass.cooldown`                        | Bypasses the switch cooldown.                                | OP                             |
+| `profiles.bypass.world`                           | Allows switching profiles in disabled worlds.                | OP                             |
+| `profiles.bypass.region`                          | Allows switching profiles in disabled regions.               | OP                             |
 | `profiles.alerts`                                 | Receives administrative alerts for profile actions.          | OP                             |
 
 ---
@@ -128,6 +131,9 @@ debug: false
 
 # Name of the default profile created on first join
 default-profile-name: "default"
+
+# Capture existing player inventory and state into the default profile on first join
+capture-existing-on-first-join: true
 
 # Global date format pattern
 date-format: "yyyy-MM-dd HH:mm"
@@ -179,6 +185,9 @@ switching:
   warmup-sound-key: "block.note_block.hat"
   warmup-complete-sound-key: "entity.player.levelup"
   warmup-cancel-sound-key: "entity.villager.no"
+  disabled-worlds: []
+  disabled-regions: []
+  require-safe-zone: false
 
 # LuckPerms group synchronization
 luckperms:
@@ -382,6 +391,9 @@ import-fail: "<color:#f38ba8>Failed to import profile from file.</color>"
 admin-prune-success: "<color:#a6e3a1>Successfully pruned <color:#fab387><count></color> inactive profile(s) older than <color:#fab387><days></color> days.</color>"
 admin-prune-none: "<color:#9399b2>No inactive profiles older than <color:#fab387><days></color> days were found to prune.</color>"
 invalid-days: "<color:#f38ba8>Please specify a valid number of days (greater than 0).</color>"
+cannot-switch-dead: "<color:#f38ba8>You cannot switch profiles while dead.</color>"
+disabled-world: "<color:#f38ba8>Profile switching is disabled in this world.</color>"
+disabled-region: "<color:#f38ba8>Profile switching is not allowed in this region.</color>"
 ```
 
 ### Configuration Options
@@ -392,6 +404,7 @@ invalid-days: "<color:#f38ba8>Please specify a valid number of days (greater tha
 |:--------------------------|:--------------|:-------------------|:------------------------------------------------------------------------------------|
 | `debug`                   | Boolean       | `false`            | Enable detailed debug logging in the server console.                                |
 | `default-profile-name`    | String        | `default`          | Name of the initial profile created automatically when a player first joins.        |
+| `capture-existing-on-first-join` | Boolean | `true`             | Capture existing player inventory and state into the default profile on first join. |
 | `date-format`             | String        | `yyyy-MM-dd HH:mm` | Date format used for displaying profile creation and last used timestamps.          |
 | `admin-alerts-enabled`    | Boolean       | `true`             | Broadcast profile actions (create, delete, switch, rename) to administrators.       |
 | `limit-tiers`             | List<Integer> | `[1, 3, 5, 10]`    | Profile slot limit thresholds based on permission nodes (e.g. `profiles.max.5`).    |
@@ -410,9 +423,12 @@ invalid-days: "<color:#f38ba8>Please specify a valid number of days (greater tha
 | `cancel-on-damage`         | Boolean | `true`  | Cancel the switch warmup if the player takes damage.                               |
 | `cancel-in-combat`         | Boolean | `true`  | Cancel the switch warmup if the player is in combat.                               |
 | `combat-tag-duration`      | Integer | `10`    | Duration in seconds that a player remains tagged in combat.                        |
-| `switch-cooldown-seconds`  | Integer | `10`    | Cooldown period in seconds before a player can switch profiles again.              |
-| `save-location`             | Boolean | `false` | Save and restore player coordinates per-profile.                                   |
-| `warmup-title-enabled`     | Boolean | `true`  | Show title/subtitle countdown during warmup.                                       |
+| `switch-cooldown-seconds`  | Integer      | `10`    | Cooldown period in seconds before a player can switch profiles again.              |
+| `save-location`            | Boolean      | `false` | Save and restore player coordinates per-profile.                                   |
+| `warmup-title-enabled`     | Boolean      | `true`  | Show title/subtitle countdown during warmup.                                       |
+| `disabled-worlds`          | List<String> | `[]`    | World names where profile switching is prohibited.                                 |
+| `disabled-regions`         | List<String> | `[]`    | WorldGuard/Towny region names where profile switching is prohibited.               |
+| `require-safe-zone`        | Boolean      | `false` | Require players to be in a safe zone (no PvP / safe region) to switch profiles.    |
 
 #### Storage Settings (`storage` in `config.yml`)
 
@@ -539,6 +555,8 @@ public class OumProfileAPIExample {
 * **`ProfileCreateEvent`** *(Cancellable)*: Fired before a profile is created.
 * **`ProfileDeleteEvent`** *(Cancellable)*: Fired before a profile is deleted.
 * **`ProfileRenameEvent`** *(Cancellable)*: Fired before a profile is renamed.
+* **`ProfileWarmupStartEvent`** *(Cancellable)*: Fired before a profile switch warmup countdown starts.
+* **`ProfileWarmupCancelEvent`**: Fired when a profile switch countdown is cancelled (e.g. movement, damage, vehicle enter, or API call).
 * **`ProfileSwitchEvent`** *(Cancellable)*: Fired when a profile switch is requested, and right before the switch takes
   place.
 * **`ProfilePostSwitchEvent`**: Fired after a profile switch completes.
